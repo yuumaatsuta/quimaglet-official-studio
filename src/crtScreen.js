@@ -52,6 +52,7 @@ export function addCrtScreen(model, rect, options) {
   mesh.userData.aspect = aspect;
   mesh.userData.noPick = true;
   mesh.userData.isScreen = true;
+  mesh.userData.noHighlight = true; // 複製すると映像・時間の共有が切れる
   model.add(mesh);
   return mesh;
 }

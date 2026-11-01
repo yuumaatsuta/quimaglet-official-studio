@@ -171,6 +171,76 @@ const motion = reducedMotion ? 0.3 : 1;
 const eye = new THREE.Vector3(win.cx, win.cy, win.cz + eyeDistance);
 const eyeTarget = new THREE.Vector3();
 
+// ---------- ズーム（中央のブラウン管など、room.focus の物を押したとき） ----------
+// 窓（画面）そのものを物の手前まで縮めて近づける。窓の見せ方（off-axis）はそのまま
+const ZOOM = {
+  margin: 1.35, // 物の大きさに対する余白（大きいほど引き気味）
+  gap: 0.08, // 物の前面から窓までの距離（m）
+  seconds: 1.4, // ズームにかかる時間
+};
+const zoom = { target: null, amount: 0, to: 0, focusWin: null };
+const shownWin = { cx: 0, cy: 0, cz: 0, halfW: 1, halfH: 1 };
+const robotEye = new THREE.Vector3();
+const zoomBack = document.getElementById('zoom-back');
+
+function focusWindow(obj) {
+  // 床の影など、押せない飾りは大きさに含めない
+  const box = new THREE.Box3();
+  obj.traverse((o) => o.isMesh && !o.userData.noPick && box.expandByObject(o, true));
+  const c = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const aspect = innerWidth / innerHeight;
+  let halfH = (size.y / 2) * ZOOM.margin;
+  let halfW = halfH * aspect;
+  const minHalfW = (size.x / 2) * ZOOM.margin;
+  if (halfW < minHalfW) {
+    halfW = minHalfW;
+    halfH = halfW / aspect;
+  }
+  return { cx: c.x, cy: c.y, cz: box.max.z + ZOOM.gap, halfW, halfH };
+}
+
+function zoomTo(id) {
+  const obj = room.focus?.get(id);
+  if (!obj) return false;
+  zoom.target = obj;
+  zoom.focusWin = focusWindow(obj);
+  zoom.to = 1;
+  hotspots.setEnabled(false);
+  document.body.classList.add('is-zoomed');
+  zoomBack.hidden = false;
+  return true;
+}
+
+function zoomOut() {
+  if (!zoom.to) return;
+  zoom.to = 0;
+  document.body.classList.remove('is-zoomed');
+  zoomBack.hidden = true;
+}
+
+zoomBack.addEventListener('click', zoomOut);
+addEventListener('keydown', (e) => e.key === 'Escape' && zoomOut());
+// ズーム中は画面のどこを押しても戻る
+addEventListener('pointerup', (e) => {
+  if (zoom.to && zoom.amount > 0.6 && e.target.tagName === 'CANVAS') zoomOut();
+});
+
+const ease = (x) => x * x * (3 - 2 * x);
+function updateZoom(dt) {
+  const step = dt / ZOOM.seconds;
+  zoom.amount = zoom.to ? Math.min(1, zoom.amount + step) : Math.max(0, zoom.amount - step);
+  if (!zoom.to && zoom.amount === 0 && zoom.target) {
+    zoom.target = null;
+    if (document.getElementById('panel').hidden) hotspots.setEnabled(true);
+  }
+  if (zoom.target) zoom.focusWin = focusWindow(zoom.target);
+  const k = ease(zoom.amount);
+  const fw = zoom.focusWin ?? win;
+  for (const key of ['cx', 'cy', 'cz', 'halfW', 'halfH']) shownWin[key] = THREE.MathUtils.lerp(win[key], fw[key], k);
+  return k;
+}
+
 // ---------- クリックできる家具とパネル ----------
 
 const tooltip = document.getElementById('tooltip');
@@ -181,11 +251,14 @@ const hotspots = createHotspots({
   sections: SECTIONS,
   tooltip,
   highlightColor: CONFIG.highlightColor,
-  onSelect: (id) => panel.open(id),
+  onSelect: (id) => zoomTo(id) || panel.open(id),
 });
 const panel = createPanel(SECTIONS, {
-  onOpen: () => hotspots.setEnabled(false),
-  onClose: () => hotspots.setEnabled(true),
+  onOpen: () => {
+    zoomOut();
+    hotspots.setEnabled(false);
+  },
+  onClose: () => !zoom.target && hotspots.setEnabled(true),
 });
 
 // ---------- ループ ----------
@@ -195,16 +268,24 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
+  const k = updateZoom(dt);
+  const w = shownWin;
+  // ズーム中は見回しを控えめにする
+  const look = motion * (1 - 0.6 * k);
   eyeTarget.set(
-    win.cx + input.x * win.halfW * view.offsetX * motion,
-    win.cy + input.y * win.halfH * view.offsetY * motion,
-    win.cz + eyeDistance,
+    w.cx + input.x * w.halfW * view.offsetX * look,
+    w.cy + input.y * w.halfH * view.offsetY * look,
+    w.cz + Math.max(w.halfW, w.halfH) * view.distanceFactor,
   );
-  eye.lerp(eyeTarget, 1 - Math.exp(-view.damping * dt));
-  updateWindowCamera(camera, eye, win);
+  // ズームの移動中は目を窓にぴったり付ける（遅れると窓の裏側に回り込む）
+  if (zoom.amount > 0 && zoom.amount < 1) eye.copy(eyeTarget);
+  else eye.lerp(eyeTarget, 1 - Math.exp(-view.damping * dt));
+  updateWindowCamera(camera, eye, w);
 
   updateShutter(dt);
-  room.update(t, { eye, win });
+  // ロボットはズーム前の窓を基準に動かす（ズームで通り道が変わらないように）
+  robotEye.set(win.cx, win.cy, win.cz + eyeDistance);
+  room.update(t, { eye: robotEye, win });
   weather?.update(dt, t);
   hotspots.update(dt);
   renderer.render(scene, camera);

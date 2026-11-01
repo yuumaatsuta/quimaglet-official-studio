@@ -363,3 +363,34 @@ button {
     animation: none;
   }
 }
+
+/* ブラウン管にズームしている間は、文字を退かして映像を見せる */
+.hero,
+.backdrop {
+  transition: opacity 0.6s ease;
+}
+.is-zoomed .hero,
+.is-zoomed .backdrop {
+  opacity: 0;
+  pointer-events: none;
+}
+.zoom-back {
+  position: fixed;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 10px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.zoom-back:hover {
+  background: rgba(0, 0, 0, 0.65);
+}

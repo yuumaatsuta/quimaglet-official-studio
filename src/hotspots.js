@@ -51,7 +51,7 @@ export function createHotspots({ camera, root, hotspots, sections, tooltip, high
     hovered = id;
     document.body.style.cursor = id ? 'pointer' : '';
     tooltip.hidden = !id;
-    if (id) tooltip.textContent = sections[id]?.label ?? id;
+    if (id) tooltip.textContent = sections[id]?.label ?? hotspots.get(id)?.userData.hotspotLabel ?? id;
   }
 
   addEventListener('pointermove', (e) => {

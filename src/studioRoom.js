@@ -4,6 +4,7 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 import { CONFIG } from './config.js';
 import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
+import { tagHotspot } from './hotspots.js';
 
 // 写真から起こしたコンクリート打ち放しのスタジオ（家具なし）。
 // 寸法は型枠（1800×900）の枚数から割り出したもの。単位は m。
@@ -117,7 +118,17 @@ export async function buildStudioRoom(onProgress) {
   buildCubbyShelf({ box, textures });
 
   // 家具（public/models/ の GLB）
-  for (const item of furniture) group.add(item);
+  // クリックできる家具。focus のものは、押すとそこへズームする（main.js）
+  const hotspots = new Map();
+  const focus = new Map();
+  for (const item of furniture) {
+    group.add(item);
+    const f = item.userData.focus;
+    if (!f) continue;
+    item.userData.hotspotLabel = f.label;
+    tagHotspot(hotspots, f.id, item);
+    focus.set(f.id, item);
+  }
 
   // 奥の左右の角に積み上げたブラウン管のタワー。画面は部屋の手前の中央へ向ける
   const towerTarget = new THREE.Vector3(0, 0, -3.5);
@@ -225,7 +236,8 @@ export async function buildStudioRoom(onProgress) {
       outside: { x0: W / 2 + 0.4, x1: W / 2 + 30, z0: -D - 16, z1: 10 },
     },
     shutter,
-    hotspots: new Map(),
+    hotspots,
+    focus,
     hasLights: true,
     // view: { eye, win }（main.js）。画面の端を知りたい物（ロボット）に渡す
     update(t, view) {
@@ -538,6 +550,7 @@ function applyWorldUV(geo, offset, fn) {
 //   rotationY: モデルの正面をカメラ（+z）へ向ける回転
 //   fabric: 布の色（指定すると布の質感に置き換える。生成モデルの金属感・テカリ・焼き込まれた陰影を消す）
 //   screen: 映像を流す画面の範囲（モデルの元の座標）。映像は config.js の crtVideo
+//   focus: 押すとそこへズームする（id とツールチップの文字）
 //   float: 床に置かず、この高さ（中心, m）に浮かせてゆっくり漂わせる
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
 const FURNITURE = [
@@ -547,6 +560,7 @@ const FURNITURE = [
   {
     url: 'models/crt.glb', x: 0, z: -D + 4.0, rotationY: 0, width: 0.42,
     screen: { x0: -0.3, x1: 0.3, y0: 0.31, y1: 0.82 },
+    focus: { id: 'tv', label: 'TV' },
   },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
@@ -579,6 +593,7 @@ async function loadFurniture(manager) {
       const group = new THREE.Group();
       const center = box.getCenter(new THREE.Vector3());
       group.add(model, contactShadow(box, item.x + center.x, item.z + center.z));
+      if (item.focus) group.userData.focus = item.focus;
       return group;
     }),
   );
