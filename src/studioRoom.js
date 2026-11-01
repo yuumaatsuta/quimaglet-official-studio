@@ -238,8 +238,11 @@ export async function buildStudioRoom(onProgress) {
     shutter,
     hotspots,
     focus,
+    // メニューで呼ぶとホログラムを映すロボット（robotWander）。いなければ null
+    robot: furniture.find((f) => f.userData.robot)?.userData.robot ?? null,
     hasLights: true,
-    // view: { eye, win }（main.js）。画面の端を知りたい物（ロボット）に渡す
+    // view: { eye, win, liveEye }（main.js）。画面の端を知りたい物（ロボット）に渡す。
+    // eye はズームや見回しに左右されない目、liveEye は実際の目（画面上の位置に合わせたいとき）
     update(t, view) {
       shutter.update(t);
       updateCrtScreens(t);
@@ -671,7 +674,45 @@ const WANDER = {
   stopChance: 0.65, // 1 回の横断で立ち止まる確率
   look: [3.5, 6.5], // 見回す時間（秒）
   wait: [1.5, 4.5], // 画面の外で待つ時間（秒）
+  // メニューで呼ばれたとき（summon）。画面の中央上まで飛んできて、顔の下からホログラムを映す
+  summonSpeed: 1.6, // 呼ばれて飛ぶ速さ（m/秒）
+  summonAccel: 1.4,
+  projectPitch: 0.3, // 映すときのうつむき（rad）。投影口を下のパネルへ向ける
 };
+
+// 顔の下の光るスロット（ホログラムの投影口）。robot.glb の元の座標（底 y = 0、正面 +z）
+const ROBOT_EMITTER = new THREE.Vector3(0, 0.087, 0.27);
+const HOLO_COLOR = new THREE.Color('#4aa8ff');
+
+// 投影口に重ねる青い光の玉
+let glowTexture;
+function holoGlow() {
+  if (!glowTexture) {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(220,240,255,1)');
+    g.addColorStop(0.25, 'rgba(90,170,255,0.8)');
+    g.addColorStop(1, 'rgba(20,60,200,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    glowTexture = new THREE.CanvasTexture(canvas);
+  }
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: glowTexture,
+      color: HOLO_COLOR,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  sprite.userData.noPick = true;
+  return sprite;
+}
 
 function robotWander(model, item) {
   model.updateMatrixWorld(true);
@@ -682,6 +723,15 @@ function robotWander(model, item) {
   const head = new THREE.Group();
   head.add(model);
   body.add(head);
+
+  // 投影口。光の玉と、ロボットの下側を青く照らす光を付ける（映していない間は消しておく）
+  const emitter = new THREE.Object3D();
+  emitter.position.copy(ROBOT_EMITTER);
+  const glow = holoGlow();
+  glow.scale.setScalar(0.35); // モデルの元の大きさで。実寸ではおよそ 15cm
+  const light = new THREE.PointLight(HOLO_COLOR, 0, 1.6, 2);
+  emitter.add(glow, light);
+  model.add(emitter);
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const damp = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
@@ -698,7 +748,19 @@ function robotWander(model, item) {
     yawTarget: 0,
     pitchTarget: 0,
     last: 0,
+    y: null, // 高さ。呼ばれた後に元の高さへなめらかに戻るよう、状態として持つ
+    summon: null, // 呼ばれた先（画面上の位置 { sx, sy }。-1〜1）
+    arrived: false,
   };
+
+  // 画面上の位置（窓の左右・上下の割合 -1〜1）を、目から見てその位置に重なる深さ z の点にする
+  function screenPoint(eye, win, sx, sy, z) {
+    const k = (eye.z - z) / (eye.z - win.cz);
+    return {
+      x: eye.x + (win.cx + sx * win.halfW - eye.x) * k,
+      y: eye.y + (win.cy + sy * win.halfH - eye.y) * k,
+    };
+  }
 
   // 窓の左右の縁を、目からロボットの深さまで延ばした x（画面の端）
   function edges(view, z) {
@@ -727,7 +789,27 @@ function robotWander(model, item) {
     // 進む方向を向き、少しだけこちらに顔を向ける
     const travelYaw = st.dir * (Math.PI / 2 - 0.35);
 
-    if (st.mode === 'wait') {
+    if (st.mode === 'summon') {
+      // 呼ばれた位置（画面の中央上）へ飛ぶ。目が動いても画面上の同じ位置に留まるよう、毎回計算し直す
+      const eye = view?.liveEye ?? view?.eye;
+      const goal = eye ? screenPoint(eye, view.win, st.summon.sx, st.summon.sy, z) : { x: item.x, y: item.float };
+      const dx = goal.x - st.x;
+      const dy = goal.y - st.y;
+      const dist = Math.hypot(dx, dy);
+      const cap = Math.min(WANDER.summonSpeed, Math.sqrt(2 * WANDER.summonAccel * dist));
+      st.speed = Math.min(st.speed + WANDER.summonAccel * dt, cap);
+      const step = Math.min(dist, st.speed * dt);
+      if (dist > 1e-4) {
+        st.x += (dx / dist) * step;
+        st.y += (dy / dist) * step;
+      }
+      if (Math.abs(dx) > 0.02) st.dir = Math.sign(dx);
+      // 遠いうちは進む方を向き、近づいたらこちらを向いて、うつむいて投影口を下へ向ける
+      const near = THREE.MathUtils.smoothstep(dist, 0.15, 0.6);
+      st.yawTarget = near * st.dir * (Math.PI / 2 - 0.35);
+      st.pitchTarget = (1 - near) * WANDER.projectPitch;
+      if (dist < 0.02) st.arrived = true;
+    } else if (st.mode === 'wait') {
       // 画面の外で待機。待ち終えたら向きを変えて出発
       st.x = st.dir > 0 ? outL : outR;
       st.speed = 0;
@@ -774,12 +856,48 @@ function robotWander(model, item) {
     st.yaw = damp(st.yaw, st.yawTarget, rate, dt);
     st.pitch = damp(st.pitch, st.pitchTarget, rate, dt);
 
-    const lean = st.dir * st.speed / WANDER.speed; // 進むときに少し前のめり
-    body.position.set(st.x, e.y + Math.sin(t * 0.9) * 0.06 + Math.sin(t * 0.37) * 0.03, z);
+    // 普段の高さ。呼ばれた後は、ここへゆっくり戻る
+    if (st.y === null) st.y = e.y;
+    else if (st.mode !== 'summon') st.y = damp(st.y, e.y, 1.5, dt);
+
+    // 進むときに少し前のめり。映している間は揺れを小さくする
+    const lean = Math.min(1, st.speed / WANDER.speed);
+    const bob = st.mode === 'summon' && st.arrived ? 0.35 : 1;
+    body.position.set(st.x, st.y + (Math.sin(t * 0.9) * 0.06 + Math.sin(t * 0.37) * 0.03) * bob, z);
     body.rotation.set(0, st.yaw, 0);
-    head.rotation.set(st.pitch + Math.sin(t * 0.6) * 0.04 + Math.abs(lean) * 0.12, 0, Math.sin(t * 0.73) * 0.04);
+    head.rotation.set(st.pitch + Math.sin(t * 0.6) * 0.04 + lean * 0.12, 0, Math.sin(t * 0.73) * 0.04);
   };
   body.userData.update(0);
+
+  // main.js から操作する（メニューを押したときのホログラム演出）
+  body.userData.robot = {
+    emitter,
+    // 画面上の位置 sx, sy（-1〜1）へ呼ぶ
+    summon(sx, sy) {
+      st.summon = { sx, sy };
+      st.arrived = false;
+      st.mode = 'summon';
+    },
+    // 呼び出しを解いて、近い方の画面の端から出て行かせる（そのまま普段の往復に戻る）
+    release(view) {
+      if (st.mode !== 'summon') return;
+      const center = view ? view.win.cx : 0;
+      st.dir = st.x >= center ? 1 : -1;
+      st.mode = 'move';
+      st.stopAt = null;
+      st.summon = null;
+      st.arrived = false;
+    },
+    get arrived() {
+      return st.arrived;
+    },
+    // 投影の強さ 0〜1。投影口の光とロボットの下を照らす光
+    setBeam(v, flicker = 1) {
+      glow.material.opacity = v * flicker;
+      glow.visible = v > 0.001;
+      light.intensity = v * flicker * 2;
+    },
+  };
   return body;
 }
 

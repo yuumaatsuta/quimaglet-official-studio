@@ -287,62 +287,156 @@ button {
 
 /* ---------- panel ---------- */
 
+/* ロボットが顔の下から映すホログラム。半透明の青〜紺。
+   ロボットは画面の中央上（main.js の HOLO.at）に止まり、そこから光（#holo-beam）がパネルの上辺へ広がる */
+:root {
+  --holo-top: 32vh; /* パネルの上端。ロボットの真下 */
+  --holo-fg: #dbeeff;
+  --holo-accent: #7cc4ff;
+  --holo-edge: rgba(120, 190, 255, 0.55);
+}
+
 .panel-scrim {
   position: fixed;
   inset: 0;
   z-index: 4;
-  background: rgba(0, 0, 0, 0.25);
+  background: radial-gradient(ellipse at 50% 40%, rgba(10, 30, 80, 0.12), rgba(0, 5, 20, 0.4));
+}
+
+.holo-beam {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 .panel {
   position: fixed;
-  z-index: 5;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(440px, 100vw);
+  z-index: 6;
+  top: var(--holo-top);
+  bottom: max(5vh, env(safe-area-inset-bottom));
+  left: 50%;
+  width: min(680px, calc(100vw - 2 * var(--pad)));
   box-sizing: border-box;
-  padding: max(64px, env(safe-area-inset-top)) var(--pad) var(--pad);
+  padding: 28px 32px 32px;
   overflow-y: auto;
-  background: var(--panel-bg);
-  backdrop-filter: blur(16px);
+  color: var(--holo-fg);
+  /* 走査線を重ねた、上が明るい青・下が紺の半透明 */
+  background:
+    repeating-linear-gradient(to bottom, rgba(150, 210, 255, 0.07) 0 1px, transparent 1px 3px),
+    linear-gradient(to bottom, rgba(40, 120, 255, 0.3), rgba(16, 44, 140, 0.34) 45%, rgba(6, 14, 60, 0.5));
+  border: 1px solid var(--holo-edge);
+  border-top-color: rgba(170, 220, 255, 0.9);
+  border-radius: 4px;
+  box-shadow:
+    0 0 24px rgba(60, 140, 255, 0.35),
+    inset 0 0 40px rgba(60, 140, 255, 0.18),
+    inset 0 1px 0 rgba(200, 230, 255, 0.5);
+  backdrop-filter: blur(3px);
+  text-shadow: 0 0 8px rgba(80, 170, 255, 0.55);
   touch-action: pan-y;
-  animation: panel-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: translateX(-50%);
+  transform-origin: 50% 0;
+  animation:
+    holo-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
+    holo-flicker 5s 0.7s infinite;
 }
 
-@keyframes panel-in {
-  from {
-    transform: translateX(40px);
+/* 上辺の光の線から下へ広がりながら、ちらついて映る */
+@keyframes holo-in {
+  0% {
+    clip-path: inset(0 0 100% 0);
     opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  18% {
+    opacity: 0.35;
+  }
+  28% {
+    opacity: 1;
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* 下から上辺へ吸い込まれるように消える */
+.panel.is-closing {
+  animation: holo-out 0.4s cubic-bezier(0.6, 0, 0.8, 0.2) forwards;
+  pointer-events: none;
+}
+@keyframes holo-out {
+  0% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.5;
+  }
+  45% {
+    opacity: 0.9;
+  }
+  100% {
+    clip-path: inset(0 0 100% 0);
+    opacity: 0;
+  }
+}
+
+/* 映っている間の、ときどきの小さな揺らぎ */
+@keyframes holo-flicker {
+  0%,
+  91%,
+  100% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 0.82;
+  }
+  93% {
+    opacity: 0.97;
+  }
+  95% {
+    opacity: 0.88;
   }
 }
 
 .panel-close {
   position: absolute;
-  top: max(16px, env(safe-area-inset-top));
-  right: var(--pad);
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--holo-edge);
   border-radius: 50%;
-  background: none;
-  font-size: 18px;
+  background: rgba(30, 90, 220, 0.2);
+  color: var(--holo-fg);
+  font-size: 17px;
   line-height: 1;
   cursor: pointer;
+  text-shadow: inherit;
+}
+.panel-close:hover {
+  background: rgba(60, 140, 255, 0.35);
 }
 
 .panel-kicker {
   margin: 0 0 6px;
-  color: var(--accent);
+  color: var(--holo-accent);
   font-size: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .panel-title {
   margin: 0 0 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(120, 190, 255, 0.3);
   font-size: 40px;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
 }
 
 .panel-body {
@@ -351,26 +445,39 @@ button {
 }
 
 .panel-body a {
-  color: var(--fg);
+  color: #a9d8ff;
 }
 
 .panel-body ul {
   padding-left: 1.2em;
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (max-width: 600px) {
   .panel {
+    padding: 22px 20px 24px;
+  }
+  .panel-title {
+    font-size: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panel.is-closing {
     animation: none;
   }
 }
 
 /* ブラウン管にズームしている間は、文字を退かして映像を見せる */
 .hero,
-.backdrop {
+.backdrop,
+.weather-panel {
   transition: opacity 0.6s ease;
 }
 .is-zoomed .hero,
-.is-zoomed .backdrop {
+.is-zoomed .backdrop,
+.is-holo .hero,
+.is-holo .weather-panel {
   opacity: 0;
   pointer-events: none;
 }

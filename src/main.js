@@ -251,15 +251,133 @@ const hotspots = createHotspots({
   sections: SECTIONS,
   tooltip,
   highlightColor: CONFIG.highlightColor,
-  onSelect: (id) => zoomTo(id) || panel.open(id),
+  onSelect: (id) => zoomTo(id) || requestSection(id),
 });
 const panel = createPanel(SECTIONS, {
+  onRequest: requestSection,
   onOpen: () => {
     zoomOut();
     hotspots.setEnabled(false);
+    holo.beamTo = 1;
+    document.body.classList.add('is-holo'); // 後ろの大きな文字を退かす
   },
-  onClose: () => !zoom.target && hotspots.setEnabled(true),
+  onClosing: () => {
+    holo.beamTo = 0;
+    document.body.classList.remove('is-holo');
+    room.robot?.release({ win });
+  },
+  onClose: () => !zoom.target && !holo.pending && hotspots.setEnabled(true),
 });
+
+// ---------- ホログラム ----------
+// メニューを押すと、ロボットが今いる所から画面の中央上まで飛んできて、
+// 顔の下の投影口から光を当て、選んだページを半透明の青いパネル（ホログラム）として映す
+const HOLO = {
+  at: { sx: 0, sy: 0.7 }, // ロボットが止まる画面上の位置（窓の左右・上下の割合 -1〜1）。パネルの上端は style.css の --holo-top
+  openDelay: 0.35, // 着いてから投影口を光らせ、パネルを映し始めるまで（秒）
+  timeout: 6, // 飛んでくるのが遅いときは、これを過ぎたら先に映す
+};
+const holo = { pending: null, wait: 0, openIn: -1, beam: 0, beamTo: 0 };
+const beamCanvas = document.getElementById('holo-beam');
+const beamCtx = beamCanvas.getContext('2d');
+const panelEl = document.getElementById('panel');
+const emitterPos = new THREE.Vector3();
+
+function requestSection(id) {
+  if (!SECTIONS[id]) return;
+  if (!room.robot || panel.isOpen) return panel.open(id);
+  zoomOut();
+  hotspots.setEnabled(false);
+  holo.pending = id;
+  holo.wait = 0;
+  holo.openIn = -1;
+  room.robot.summon(HOLO.at.sx, HOLO.at.sy);
+}
+
+// 飛んでくる途中で Esc を押したら取りやめる
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !holo.pending) return;
+  holo.pending = null;
+  holo.beamTo = 0;
+  room.robot?.release({ win });
+  if (!zoom.target) hotspots.setEnabled(true);
+});
+
+function updateHologram(dt, t) {
+  if (holo.pending) {
+    holo.wait += dt;
+    if (holo.openIn < 0 && (room.robot.arrived || holo.wait > HOLO.timeout)) {
+      holo.openIn = HOLO.openDelay;
+      holo.beamTo = 0.6; // まず投影口だけ光らせる
+    }
+    if (holo.openIn >= 0 && (holo.openIn -= dt) <= 0) {
+      const id = holo.pending;
+      holo.pending = null;
+      panel.open(id);
+    }
+  }
+  holo.beam += (holo.beamTo - holo.beam) * (1 - Math.exp(-7 * dt));
+  if (holo.beam < 0.002) holo.beam = 0;
+  // 投影の光のちらつき
+  const flicker = 0.88 + 0.08 * Math.sin(t * 23) * Math.sin(t * 7.3) + 0.04 * Math.sin(t * 61);
+  room.robot?.setBeam(holo.beam, flicker);
+  drawBeam(flicker);
+}
+
+// 投影口からパネルの上辺へ広がる光。3D の上に重ねた 2D の canvas に描く
+function drawBeam(flicker) {
+  const w = innerWidth;
+  const h = innerHeight;
+  const dpr = Math.min(devicePixelRatio, 2);
+  if (beamCanvas.width !== Math.round(w * dpr) || beamCanvas.height !== Math.round(h * dpr)) {
+    beamCanvas.width = Math.round(w * dpr);
+    beamCanvas.height = Math.round(h * dpr);
+  }
+  beamCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  beamCtx.clearRect(0, 0, w, h);
+  if (!room.robot || holo.beam === 0 || panelEl.hidden) return;
+
+  const p = room.robot.emitter.getWorldPosition(emitterPos).project(camera);
+  if (p.z > 1) return;
+  const ex = ((p.x + 1) / 2) * w;
+  const ey = ((1 - p.y) / 2) * h;
+  const r = panelEl.getBoundingClientRect();
+  if (r.top <= ey) return;
+  const a = holo.beam * flicker;
+
+  beamCtx.globalCompositeOperation = 'lighter';
+  const fill = beamCtx.createLinearGradient(0, ey, 0, r.top);
+  fill.addColorStop(0, `rgba(160, 210, 255, ${0.5 * a})`);
+  fill.addColorStop(0.35, `rgba(70, 150, 255, ${0.22 * a})`);
+  fill.addColorStop(1, `rgba(30, 80, 220, ${0.1 * a})`);
+  beamCtx.fillStyle = fill;
+  beamCtx.beginPath();
+  beamCtx.moveTo(ex - 3, ey);
+  beamCtx.lineTo(r.left, r.top);
+  beamCtx.lineTo(r.right, r.top);
+  beamCtx.lineTo(ex + 3, ey);
+  beamCtx.closePath();
+  beamCtx.fill();
+
+  // 光の縁
+  beamCtx.strokeStyle = `rgba(130, 195, 255, ${0.4 * a})`;
+  beamCtx.lineWidth = 1;
+  beamCtx.beginPath();
+  beamCtx.moveTo(ex, ey);
+  beamCtx.lineTo(r.left, r.top);
+  beamCtx.moveTo(ex, ey);
+  beamCtx.lineTo(r.right, r.top);
+  beamCtx.stroke();
+
+  // 投影口のにじみ
+  const glow = beamCtx.createRadialGradient(ex, ey, 0, ex, ey, 22);
+  glow.addColorStop(0, `rgba(220, 240, 255, ${0.9 * a})`);
+  glow.addColorStop(0.4, `rgba(80, 160, 255, ${0.35 * a})`);
+  glow.addColorStop(1, 'rgba(30, 80, 220, 0)');
+  beamCtx.fillStyle = glow;
+  beamCtx.fillRect(ex - 22, ey - 22, 44, 44);
+  beamCtx.globalCompositeOperation = 'source-over';
+}
 
 // ---------- ループ ----------
 
@@ -285,9 +403,10 @@ renderer.setAnimationLoop(() => {
   updateShutter(dt);
   // ロボットはズーム前の窓を基準に動かす（ズームで通り道が変わらないように）
   robotEye.set(win.cx, win.cy, win.cz + eyeDistance);
-  room.update(t, { eye: robotEye, win });
+  room.update(t, { eye: robotEye, win, liveEye: eye });
   weather?.update(dt, t);
   hotspots.update(dt);
+  updateHologram(dt, t);
   renderer.render(scene, camera);
 });
 
@@ -309,4 +428,4 @@ if (room.shutter && fixedShutter !== null) {
 }
 
 const initial = location.hash.slice(1);
-if (SECTIONS[initial]) panel.open(initial);
+if (SECTIONS[initial]) requestSection(initial);
