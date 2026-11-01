@@ -1,0 +1,10 @@
+node_modules
+dist
+
+# 素材の元データ（サイトには public/ に変換済みのものだけを使う）
+*.mov
+image.png
+blown TV 0*/
+Lavvy robot/
+room refalence/
+sofa 3d model/

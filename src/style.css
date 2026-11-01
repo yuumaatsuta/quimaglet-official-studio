@@ -1,0 +1,365 @@
+:root {
+  --u: calc(100vw / 1440);
+  --pad: max(20px, calc(30 * var(--u)));
+  --fg: #fff;
+  --accent: #ff5fa8;
+  --panel-bg: rgba(18, 16, 14, 0.82);
+  font-family: Inter, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  color: var(--fg);
+  touch-action: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+canvas {
+  display: block;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------- overlay ---------- */
+
+.backdrop,
+.site-header,
+.hero {
+  position: fixed;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.fade {
+  position: absolute;
+  left: 0;
+  width: 100%;
+}
+
+.fade-top {
+  top: 0;
+  height: max(96px, calc(167 * var(--u)));
+  background: linear-gradient(rgba(20, 16, 12, 0.35), rgba(20, 16, 12, 0));
+}
+
+.fade-bottom {
+  bottom: 0;
+  height: max(260px, calc(366 * var(--u)));
+  background: linear-gradient(rgba(20, 16, 12, 0), rgba(20, 16, 12, 0.6));
+}
+
+.site-header,
+.hero {
+  left: 0;
+  right: 0;
+  padding-left: max(var(--pad), env(safe-area-inset-left));
+  padding-right: max(var(--pad), env(safe-area-inset-right));
+}
+
+.site-header {
+  top: max(14px, calc(15 * var(--u)), env(safe-area-inset-top));
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.logo {
+  pointer-events: auto;
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-size: clamp(15px, calc(16 * var(--u)), 20px);
+}
+
+.nav {
+  display: flex;
+  gap: clamp(12px, calc(24 * var(--u)), 32px);
+}
+
+.nav button {
+  pointer-events: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  letter-spacing: -0.02em;
+  font-size: clamp(13px, calc(14 * var(--u)), 18px);
+}
+
+.nav button:hover,
+.nav button:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 25%;
+}
+
+.hero {
+  bottom: max(16px, calc(20 * var(--u)), env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 12px clamp(24px, calc(64 * var(--u)), 96px);
+}
+
+.hero h1 {
+  margin: 0 0 -0.12em;
+  font-size: clamp(52px, calc(140 * var(--u)), 190px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
+.hero-copy {
+  max-width: 26rem;
+  font-size: clamp(13px, calc(14 * var(--u)), 17px);
+  line-height: 1.6;
+}
+
+.hero-copy p {
+  margin: 0;
+}
+
+.for-touch {
+  display: none;
+}
+
+.is-touch .for-touch {
+  display: inline;
+}
+
+.is-touch .for-desktop {
+  display: none;
+}
+
+@media (width <= 720px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .nav {
+    gap: 12px;
+  }
+  .nav button {
+    font-size: 12px;
+  }
+}
+
+/* ---------- boot ---------- */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: #000;
+  transition: opacity 0.6s ease;
+}
+
+.boot p {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.boot.is-done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- tooltip ---------- */
+
+.tooltip {
+  position: fixed;
+  z-index: 2;
+  left: 0;
+  top: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---------- immerse ---------- */
+
+.immerse {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 16px 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: background 0.25s, color 0.25s, border-color 0.25s;
+}
+
+.immerse svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.immerse:hover,
+.immerse:focus-visible {
+  border-color: #fff;
+}
+
+.immerse[aria-pressed="true"] {
+  border-color: #fff;
+  background: #fff;
+  color: #111;
+}
+
+/* ---------- weather (試作) ---------- */
+
+.weather-panel {
+  position: fixed;
+  z-index: 2;
+  top: calc(max(14px, calc(15 * var(--u)), env(safe-area-inset-top)) + 36px);
+  left: max(var(--pad), env(safe-area-inset-left));
+  display: grid;
+  gap: 6px;
+  max-width: calc(100vw - 2 * var(--pad));
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+}
+
+.weather-status {
+  margin: 0 0 2px;
+  opacity: 0.85;
+}
+
+.weather-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.weather-row button {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: none;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weather-row button:hover {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.weather-row button.is-active {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+}
+
+/* ---------- panel ---------- */
+
+.panel-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.panel {
+  position: fixed;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 100vw);
+  box-sizing: border-box;
+  padding: max(64px, env(safe-area-inset-top)) var(--pad) var(--pad);
+  overflow-y: auto;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  touch-action: pan-y;
+  animation: panel-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes panel-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+}
+
+.panel-close {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  right: var(--pad);
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panel-kicker {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.panel-title {
+  margin: 0 0 20px;
+  font-size: 40px;
+  letter-spacing: -0.03em;
+}
+
+.panel-body {
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.panel-body a {
+  color: var(--fg);
+}
+
+.panel-body ul {
+  padding-left: 1.2em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+}
