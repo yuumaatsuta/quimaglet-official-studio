@@ -597,7 +597,9 @@ async function loadFurniture(manager) {
       const center = box.getCenter(new THREE.Vector3());
       group.add(model, contactShadow(box, item.x + center.x, item.z + center.z));
       if (item.focus) group.userData.focus = item.focus;
-      group.userData.box = box;
+      // 置いた後の位置で測り直す（box は動かす前の座標）。on で上に載せるときに使う
+      model.updateMatrixWorld(true);
+      group.userData.box = new THREE.Box3().setFromObject(model);
       return group;
     }),
   );
