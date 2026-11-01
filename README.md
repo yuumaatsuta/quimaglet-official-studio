@@ -6,6 +6,7 @@
 npm install
 npm run dev      # 開発サーバー
 npm run build    # dist/ に書き出し（静的ホスティングにそのまま置ける）
+npm run deploy   # GitHub Pages に公開 → https://yuumaatsuta.github.io/quimaglet-official-studio/
 ```
 
 ## 仕組み
@@ -20,6 +21,7 @@ npm run build    # dist/ に書き出し（静的ホスティングにそのま�
 | `src/studioRoom.js` | 写真から起こしたコンクリートのスタジオ（6m × 6m × 奥行 8m、家具なし） |
 | シャッター | `studioRoom.js` の `buildShutter`。開くと 1.2 秒後に 7 秒かけて上がる（`config.js` の `shutterDelayMs`）。`?shutter=0.4` で開き具合を固定できる |
 | 家具 | `studioRoom.js` の `FURNITURE`（位置・向き・幅・布の色・浮遊の高さ）。OBJ は `blender -b -P scripts/blender/optimize_model.py -- 入力.obj public/models/名前.glb` で軽くしてから置く |
+| ロボット | `studioRoom.js` の `WANDER`（速さ・高さ・立ち止まる確率・見回す時間・画面外で待つ時間）。画面の端は目と窓から毎フレーム計算するので、PC でもスマホでも画面の外から外へ往復する |
 | `src/weather.js` | 天気ごとの見え方（プリセット）と、淵野辺の現在の天気の取得（Open-Meteo、10 分ごと） |
 | `src/weatherScene.js` | 空（シェーダー）・景色・雨・雪・霧・稲光と、天気に合わせた室内の光 |
 | `src/weatherPanel.js` | 試作用の天気切り替えボタン（`config.js` の `weatherPanel: false` で消える）。`?weather=rain&night` のように URL でも指定できる |
