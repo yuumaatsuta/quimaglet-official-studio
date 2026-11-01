@@ -551,6 +551,7 @@ function applyWorldUV(geo, offset, fn) {
 //   fabric: 布の色（指定すると布の質感に置き換える。生成モデルの金属感・テカリ・焼き込まれた陰影を消す）
 //   screen: 映像を流す画面の範囲（モデルの元の座標）。映像は config.js の crtVideo
 //   focus: 押すとそこへズームする（id とツールチップの文字）
+//   on: 床ではなく、この url の家具の天面に載せる（中心も揃える。x, z は無視）
 //   float: 床に置かず、この高さ（中心, m）に浮かせてゆっくり漂わせる
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
 const FURNITURE = [
@@ -562,6 +563,8 @@ const FURNITURE = [
     screen: { x0: -0.3, x1: 0.3, y0: 0.31, y1: 0.82 },
     focus: { id: 'tv', label: 'TV' },
   },
+  // 中央のブラウン管の上に載せた宇宙ヘルメット（space 3d helmet）
+  { url: 'models/helmet.glb', on: 'models/crt.glb', x: 0, z: 0, rotationY: 0, width: 0.3 },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
 ];
@@ -569,7 +572,7 @@ const FURNITURE = [
 async function loadFurniture(manager) {
   const loader = new GLTFLoader(manager);
   const base = import.meta.env.BASE_URL;
-  return Promise.all(
+  const groups = await Promise.all(
     FURNITURE.map(async (item) => {
       const gltf = await loader.loadAsync(base + item.url);
       const model = gltf.scene;
@@ -594,9 +597,21 @@ async function loadFurniture(manager) {
       const center = box.getCenter(new THREE.Vector3());
       group.add(model, contactShadow(box, item.x + center.x, item.z + center.z));
       if (item.focus) group.userData.focus = item.focus;
+      group.userData.box = box;
       return group;
     }),
   );
+  // on: 下の家具の天面に載せ、中心を揃える（影ごと持ち上げるので天面に落ちる）
+  FURNITURE.forEach((item, i) => {
+    if (!item.on) return;
+    const below = groups[FURNITURE.findIndex((f) => f.url === item.on)]?.userData.box;
+    const box = groups[i].userData.box;
+    if (!below || !box) return;
+    const a = below.getCenter(new THREE.Vector3());
+    const b = box.getCenter(new THREE.Vector3());
+    groups[i].position.set(a.x - b.x, below.max.y - box.min.y, a.z - b.z);
+  });
+  return groups;
 }
 
 // 宙に浮かせ、上下にふわふわ揺れながら、ゆっくり首を振らせる
