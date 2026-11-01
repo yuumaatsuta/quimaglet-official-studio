@@ -551,7 +551,10 @@ function applyWorldUV(geo, offset, fn) {
 //   fabric: 布の色（指定すると布の質感に置き換える。生成モデルの金属感・テカリ・焼き込まれた陰影を消す）
 //   screen: 映像を流す画面の範囲（モデルの元の座標）。映像は config.js の crtVideo
 //   focus: 押すとそこへズームする（id とツールチップの文字）
-//   on: 床ではなく、この url の家具の天面に載せる（中心も揃える。x, z は無視）
+//   on: 床ではなく、この url の家具の上に載せる（左右・前後の中心を揃える。x, z は無視）
+//     onOffset: { y, z } 揃えた位置からのずれ（m）。y は下の家具の天面から、載せる物の底までの高さ
+//     rotationX: 前後の傾き（負で後ろが下がる）
+//     天面が平らでない物（ブラウン管の後ろの斜面など）は、Blender で接地する傾き・ずれを計算して指定する
 //   float: 床に置かず、この高さ（中心, m）に浮かせてゆっくり漂わせる
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
 const FURNITURE = [
@@ -563,8 +566,13 @@ const FURNITURE = [
     screen: { x0: -0.3, x1: 0.3, y0: 0.31, y1: 0.82 },
     focus: { id: 'tv', label: 'TV' },
   },
-  // 中央のブラウン管の上に載せた宇宙ヘルメット（space 3d helmet）
-  { url: 'models/helmet.glb', on: 'models/crt.glb', x: 0, z: 0, rotationY: 0, width: 0.3 },
+  // 中央のブラウン管の上に載せた宇宙ヘルメット（space 3d helmet）。
+  // ブラウン管の天面は前 1/3 だけ平らで後ろは斜面なので、22° 後ろへ傾けて、前は天面の角・後ろは斜面に接地させる。
+  // 傾き・ずれは width 0.38（ブラウン管 0.42）での計算値。大きさを変えたら計算し直す
+  {
+    url: 'models/helmet.glb', on: 'models/crt.glb', x: 0, z: 0, rotationY: 0, width: 0.38,
+    rotationX: -0.384, onOffset: { y: -0.0576, z: 0.01 },
+  },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
 ];
@@ -588,22 +596,26 @@ async function loadFurniture(manager) {
       model.scale.setScalar(item.width / size.x);
       if (item.wander) return robotWander(model, item);
       if (item.float) return floating(model, item);
-      model.rotation.y = item.rotationY ?? 0;
+      model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, 0);
       model.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(model);
+      const box = modelBox(model);
       model.position.set(item.x, -box.min.y, item.z);
 
       const group = new THREE.Group();
-      const center = box.getCenter(new THREE.Vector3());
-      group.add(model, contactShadow(box, item.x + center.x, item.z + center.z));
+      group.add(model);
+      // 上に載せる物は、床用の接地影を付けない（下の家具の中に埋もれる）
+      if (!item.on) {
+        const center = box.getCenter(new THREE.Vector3());
+        group.add(contactShadow(box, item.x + center.x, item.z + center.z));
+      }
       if (item.focus) group.userData.focus = item.focus;
       // 置いた後の位置で測り直す（box は動かす前の座標）。on で上に載せるときに使う
       model.updateMatrixWorld(true);
-      group.userData.box = new THREE.Box3().setFromObject(model);
+      group.userData.box = modelBox(model);
       return group;
     }),
   );
-  // on: 下の家具の天面に載せ、中心を揃える（影ごと持ち上げるので天面に落ちる）
+  // on: 下の家具の上に載せ、中心を揃える
   FURNITURE.forEach((item, i) => {
     if (!item.on) return;
     const below = groups[FURNITURE.findIndex((f) => f.url === item.on)]?.userData.box;
@@ -611,9 +623,18 @@ async function loadFurniture(manager) {
     if (!below || !box) return;
     const a = below.getCenter(new THREE.Vector3());
     const b = box.getCenter(new THREE.Vector3());
-    groups[i].position.set(a.x - b.x, below.max.y - box.min.y, a.z - b.z);
+    const off = item.onOffset ?? {};
+    groups[i].position.set(a.x - b.x, below.max.y - box.min.y + (off.y ?? 0), a.z - b.z + (off.z ?? 0));
   });
   return groups;
+}
+
+// モデルの外形。頂点から正確に測る（傾けた物は、標準の測り方だと箱が膨らんで浮く）。
+// ブラウン管に後から貼った映像の板は含めない
+function modelBox(model) {
+  const box = new THREE.Box3();
+  model.traverse((o) => o.isMesh && !o.userData.isScreen && box.expandByObject(o, true));
+  return box;
 }
 
 // 宙に浮かせ、上下にふわふわ揺れながら、ゆっくり首を振らせる
