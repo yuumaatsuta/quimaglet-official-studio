@@ -13,6 +13,12 @@ const PAINT = {
   emissive: 0, // ペンキは光らない（シャッターを閉めた暗い部屋では見えなくなる）。ホバーのホログラムだけが光る
 };
 
+// メニューの下の間接照明（上へ壁を照らす）
+const LIGHT = {
+  color: '#ffe2c0',
+  intensity: 9,
+};
+
 // 置き場所：奥の壁の中央、蛍光灯の真下（夜にいちばん明るく照らされる所）。
 // 左右のブラウン管タワーの間に、語ごとにばらばらに散らす。x は語の左端、y は語の中心の高さ（m）
 //   scale: 大きさ / rot: 傾き（rad）/ skew: 斜体の強さ / jitter: 文字ごとの崩れ（0〜1）
@@ -85,6 +91,36 @@ export async function buildWallMenu({ wallZ, seed = 23 }) {
   box.max.y += 0.12; // 星などの添え書きの分
   box.min.y -= 0.18; // 垂れの分
   const center = box.getCenter(new THREE.Vector3());
+
+  // メニューの下に付けた間接照明：壁から少し出した細い器具から、上へ壁をなめるように照らす。
+  // 夜やプラネタリウムで部屋を暗くしても、メニューだけは読めるように
+  const menuWidth = box.max.x - box.min.x + 0.5;
+  const fixture = new THREE.Group();
+  const bar = new THREE.Mesh(
+    new THREE.BoxGeometry(menuWidth, 0.035, 0.07),
+    new THREE.MeshStandardMaterial({ color: '#17181b', roughness: 0.45, metalness: 0.7 }),
+  );
+  bar.position.set(center.x, box.min.y - 0.06, wallZ + 0.035);
+  const strip = new THREE.Mesh(
+    new THREE.BoxGeometry(menuWidth - 0.04, 0.004, 0.03),
+    new THREE.MeshStandardMaterial({ color: '#000', emissive: LIGHT.color, emissiveIntensity: 2 }),
+  );
+  strip.position.set(center.x, box.min.y - 0.06 + 0.019, wallZ + 0.04);
+  bar.userData.noPick = strip.userData.noPick = true;
+  bar.castShadow = true;
+  fixture.add(bar, strip);
+  group.add(fixture);
+  const wash = new THREE.RectAreaLight(LIGHT.color, LIGHT.intensity, menuWidth, 0.04);
+  group.add(wash);
+  const placeWash = (scale) => {
+    // 器具の上から、壁のメニューの中ほどへ向ける（RectAreaLight は親の拡大を大きさに反映しないので幅を直す）
+    wash.width = menuWidth * scale;
+    wash.position.set(center.x, box.min.y - 0.035, wallZ + 0.1);
+    group.updateMatrixWorld(true);
+    wash.lookAt(group.localToWorld(new THREE.Vector3(center.x, center.y + (box.max.y - center.y) * 0.4, wallZ)));
+  };
+  placeWash(1);
+
   let lastKey = null;
   group.userData.update = (t, view) => {
     const win = view?.win;
@@ -108,10 +144,11 @@ export async function buildWallMenu({ wallZ, seed = 23 }) {
     // 中心を支点に縮める（壁からは離さないので z はそのまま）
     group.scale.set(scale, scale, 1);
     group.position.set(center.x * (1 - scale), center.y * (1 - scale) + shift, 0);
+    placeWash(scale);
     // 縮めて下げた後の下端（News の投影がこの下に入る。newsProjector.js）
-    group.userData.bottom = box.min.y * scale + center.y * (1 - scale) + shift;
+    group.userData.bottom = (box.min.y - 0.1) * scale + center.y * (1 - scale) + shift; // 間接照明の器具の分も
   };
-  group.userData.bottom = box.min.y;
+  group.userData.bottom = box.min.y - 0.1;
 
   return { group, items };
 }

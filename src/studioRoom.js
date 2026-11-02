@@ -199,7 +199,7 @@ export async function buildStudioRoom(onProgress) {
 
   // 奥の壁際に吊られた蛍光灯
   const tubeZ = -D + 0.75;
-  const tubeY = 5.2;
+  const tubeY = 5.7; // 天井近くまで上げる（縦長の画面で、下の落書きメニューに重ならないように）
   // 奥の壁の中央。夜はこの真下の壁がいちばん明るいので、落書きのメニューもここに描く（wallMenu.js）
   const tubeX0 = -1.8;
   const tubeX1 = 1.8;
