@@ -1,25 +1,23 @@
 import { ABOUT, escapeHtml } from './content.js';
 
-// About を開いたときの画面。部屋の上に、画面いっぱいの文字が現れる。
-// 左に壁ぞろえでメインの文章を流し、残りを quimaglet にまつわる言葉で大小ばらばらに埋め尽くす。
-// スクロールで読み進める。後ろの部屋はうっすら見えたまま（ロボットがのぞきに来るのが見える）
+// About を開いたときの画面。部屋（カメラの映像）の上に、ノイズ混じりで文字が映り込む。
+// 本文（日本語の文章）とまわりの言葉（英語の短い文が中心）を同じ書体・同じ白でひとつの構成に組み、
+// 本文がほかの文字に溶け込むようにする。余白は広めにとり、スクロールで読み進める。
+// 映っている間もときどきノイズが走る（エラーのような乱れ）。文字のない所を押すと閉じる
 
-// 言葉の敷き詰め方。1 行ずつ高さを決め、その高さで言葉（または小さな言葉を縦に積んだ束・縦書き）を並べ、
-// 行の幅にぴったり合うよう、行ごと拡大縮小する（新聞の見出しを詰めたように、すき間なく埋まる）
-const FILL = {
-  rows: [
-    // [割合, 行の高さの最小, 最大]（px）
-    [0.22, 70, 140],
-    [0.38, 34, 62],
-    [0.4, 16, 28],
-  ],
-  stack: 0.38, // 高い行で、小さな言葉を縦に積んだ束にする割合
-  vertical: 0.18, // 高い行で、短い日本語を縦書きにする割合
-  invert: 0.05, // 白地に黒の言葉の割合
-  rule: 0.1, // 上下に罫線を引く割合
-  gap: 6, // 言葉どうしの横のすき間（px）
-  rowGap: 3, // 行どうしのすき間（px）
-  font: '"Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif',
+const LAYOUT = {
+  rowGap: [9, 20], // 段と段のあいだの余白（画面の高さに対する %）
+  mainSpan: { wide: 5, narrow: 6 }, // 本文の幅（列数）。広い画面は 12 列、狭い画面は 6 列
+};
+
+const NOISE = {
+  scale: 3, // ノイズを何分の 1 の大きさで描いて引き伸ばすか（粗いほど軽い）
+  base: 0.09, // ふだんのざらつき
+  intro: 0.5, // 映り始めのざらつき
+  introSeconds: 1.4,
+  burst: 0.38, // ときどき走る乱れの強さ
+  burstEvery: [3.5, 8], // 乱れの間隔（秒）
+  burstLength: [0.12, 0.42],
 };
 
 export function createAboutView({ onOpen, onClose } = {}) {
@@ -27,137 +25,171 @@ export function createAboutView({ onOpen, onClose } = {}) {
   root.id = 'about-view';
   root.className = 'about-view';
   root.hidden = true;
+  root.tabIndex = -1;
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'true');
   root.setAttribute('aria-label', 'About');
   root.innerHTML = `
-    <div class="about-scroll">
-      <div class="about-page">
-        <div class="about-main"></div>
-        <div class="about-fill" aria-hidden="true"></div>
-      </div>
-    </div>
-    <button type="button" class="about-close" aria-label="閉じる">×</button>`;
+    <canvas class="about-noise" aria-hidden="true"></canvas>
+    <div class="about-scroll"><div class="about-page"></div></div>`;
   document.body.append(root);
+  const noise = root.querySelector('.about-noise');
+  const nctx = noise.getContext('2d');
   const scroller = root.querySelector('.about-scroll');
   const page = root.querySelector('.about-page');
-  const main = root.querySelector('.about-main');
-  const fill = root.querySelector('.about-fill');
-  const closeButton = root.querySelector('.about-close');
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let open = false;
   let returnFocus = null;
   let closeTimer = 0;
+  let raf = 0;
 
-  function render() {
-    // メインの文章：空行で段落。最初の段落は大きな見出しにする
+  // ---------- 組み版 ----------
+
+  function compose() {
+    const narrow = innerWidth < 720;
+    const cols = narrow ? 6 : 12;
+    page.style.setProperty('--cols', cols);
+    const r = rand(2024);
     const paras = String(ABOUT.main).trim().split(/\n\s*\n/).filter(Boolean);
-    main.innerHTML = paras
-      .map((p, i) => {
-        const lines = p.split('\n').map((l) => escapeHtml(l)).join('<br />');
-        const latin = /^[\x00-\x7F\s―—'’.,!?:;()-]+$/.test(p);
-        return `<p class="${i === 0 ? 'about-title' : latin ? 'about-en' : ''}" style="--d:${Math.min(i * 90, 1400)}ms">${lines}</p>`;
-      })
-      .join('');
-    renderFill();
-  }
+    const fills = shuffle(ABOUT.fill.length ? ABOUT.fill : ['QUIMAGLET'], 11);
+    const short = fills.filter((t) => [...t].length <= 18);
+    const long = fills.filter((t) => [...t].length > 18);
+    let si = 0;
+    let li = 0;
+    const nextShort = () => (short.length ? short[si++ % short.length] : fills[0]);
+    const nextLong = () => (long.length ? long[li++ % long.length] : nextShort());
+    let order = 0;
 
-  // 埋め尽くす言葉：行の幅にぴったり合わせて詰めながら、メインの文章の高さ（スマホは画面全体）まで並べる
-  function renderFill() {
-    fill.innerHTML = '';
-    const cs = getComputedStyle(fill);
-    const width = fill.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 10;
-    if (width < 50) return;
-    const target = Math.max(main.offsetHeight, scroller.clientHeight - 120) + 40;
-    const words = ABOUT.fill.length ? ABOUT.fill : ['QUIMAGLET'];
-    const r = rand(1234);
-    let queue = [];
-    let pass = 0;
-    const next = () => {
-      if (!queue.length) queue = shuffle(words, pass++ * 97 + 13);
-      return String(queue.shift());
+    const rows = [];
+    const row = (blocks) => {
+      const el = document.createElement('div');
+      el.className = 'about-row';
+      el.style.marginBottom = `${(LAYOUT.rowGap[0] + r() * (LAYOUT.rowGap[1] - LAYOUT.rowGap[0])).toFixed(1)}vh`;
+      for (const b of blocks) el.append(b);
+      rows.push(el);
     };
-    const frag = document.createDocumentFragment();
-    let height = 0;
-    let n = 0;
-    while (height < target && n < 4000) {
-      // 行の高さ
-      let pick = r();
-      let H = 24;
-      for (const [share, lo, hi] of FILL.rows) {
-        if ((pick -= share) <= 0) {
-          H = lo + r() * (hi - lo);
-          break;
+    const block = (text, size, start, span, { main = false, drop = 0 } = {}) => {
+      const el = document.createElement(main ? 'p' : 'div');
+      el.className = `about-block is-${size}${main ? ' is-main' : ''}`;
+      if (!main && isJapanese(text) && [...text].length <= 14 && size !== 's' && r() < 0.5) el.classList.add('is-vertical');
+      el.innerHTML = escapeHtml(text);
+      el.style.gridColumn = `${start} / span ${Math.max(1, Math.min(span, cols - start + 1))}`;
+      if (drop) el.style.marginTop = `${drop.toFixed(1)}vh`;
+      el.style.setProperty('--d', `${180 + order++ * 140 + Math.floor(r() * 160)}ms`);
+      if (!main) el.setAttribute('aria-hidden', 'true');
+      return el;
+    };
+    const col = (lo, hi) => lo + Math.floor(r() * (hi - lo + 1));
+
+    // 書き出し：大きな言葉
+    row([block(nextShort(), 'xl', narrow ? 1 : col(1, 5), cols)]);
+
+    paras.forEach((p, i) => {
+      // 本文は左にそろえる。横の空いた所に、小さな英文をずらして置く
+      const span = narrow ? LAYOUT.mainSpan.narrow : LAYOUT.mainSpan.wide;
+      const blocks = [block(p, 'm', 1, span, { main: true })];
+      if (!narrow) blocks.push(block(nextLong(), r() < 0.5 ? 's' : 'm', col(8, 9), 4, { drop: r() * 14 }));
+      row(blocks);
+      // 合間：大きな一文か、散らばった小さな文
+      if (i === paras.length - 1) return;
+      if (r() < 0.5) {
+        row([block(nextShort(), r() < 0.5 ? 'xl' : 'l', narrow ? 1 : col(2, 7), cols)]);
+      } else if (narrow) {
+        row([block(nextLong(), 's', col(2, 3), 4), block(nextShort(), 'l', 1, 6, { drop: 3 })]);
+      } else {
+        row([
+          block(nextLong(), 's', col(1, 3), 3, { drop: r() * 6 }),
+          block(nextShort(), 'l', col(5, 6), 4, { drop: r() * 10 }),
+          block(nextLong(), 's', col(10, 11), 2, { drop: r() * 16 }),
+        ]);
+      }
+    });
+
+    // 締め：大きな言葉と小さな署名
+    row([block(nextShort(), 'xl', narrow ? 1 : col(3, 6), cols)]);
+    row([block('© QUIMAGLET', 's', narrow ? 1 : col(9, 10), 3)]);
+    page.replaceChildren(...rows);
+  }
+
+  // ---------- ノイズと乱れ ----------
+
+  let t0 = 0;
+  let nextBurst = 0;
+  let burstEnd = 0;
+  let img = null;
+
+  function resizeNoise() {
+    const w = Math.ceil(innerWidth / NOISE.scale);
+    const h = Math.ceil(innerHeight / NOISE.scale);
+    if (noise.width !== w || noise.height !== h || !img) {
+      noise.width = w;
+      noise.height = h;
+      img = nctx.createImageData(w, h);
+    }
+  }
+
+  function frame(now) {
+    if (root.hidden) return;
+    raf = requestAnimationFrame(frame);
+    const t = (now - t0) / 1000;
+    if (t > nextBurst && !reducedMotion && open) {
+      burstEnd = t + rr(...NOISE.burstLength);
+      nextBurst = burstEnd + rr(...NOISE.burstEvery);
+    }
+    const bursting = t < burstEnd;
+    const intro = Math.max(0, 1 - t / NOISE.introSeconds);
+    const level = Math.max(NOISE.base, NOISE.intro * intro * intro, bursting ? NOISE.burst : 0);
+    drawNoise(level, bursting || intro > 0.4);
+    // 文字の乱れ：横へずれる・色が分かれる・一部が一瞬消える
+    if ((bursting || intro > 0.35) && !reducedMotion) {
+      const shift = (Math.random() - 0.5) * (bursting ? 14 : 8);
+      page.style.transform = `translate3d(${shift.toFixed(1)}px, 0, 0) skewX(${((Math.random() - 0.5) * 3).toFixed(2)}deg)`;
+      page.classList.add('is-glitch');
+      if (Math.random() < 0.35) {
+        const blocks = page.querySelectorAll('.about-block');
+        const b = blocks[Math.floor(Math.random() * blocks.length)];
+        b?.classList.add('is-off');
+        setTimeout(() => b?.classList.remove('is-off'), 60 + Math.random() * 120);
+      }
+    } else if (page.classList.contains('is-glitch')) {
+      page.style.transform = '';
+      page.classList.remove('is-glitch');
+    }
+  }
+
+  // 画面全体のざらつき。乱れているときは、横に走る帯も描く
+  function drawNoise(level, bands) {
+    resizeNoise();
+    const d = img.data;
+    const w = noise.width;
+    const h = noise.height;
+    const a = level * 255;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = (Math.random() * 255) | 0;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = (Math.random() * a) | 0;
+    }
+    if (bands) {
+      const count = 1 + Math.floor(Math.random() * 4);
+      for (let k = 0; k < count; k++) {
+        const y0 = Math.floor(Math.random() * h);
+        const bh = 1 + Math.floor(Math.random() * 6);
+        const tint = Math.random() < 0.5 ? [255, 255, 255] : [Math.random() < 0.5 ? 255 : 40, 60, 255];
+        for (let y = y0; y < Math.min(h, y0 + bh); y++) {
+          for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            d[i] = tint[0];
+            d[i + 1] = tint[1];
+            d[i + 2] = tint[2];
+            d[i + 3] = Math.random() * 120;
+          }
         }
       }
-      const cells = [];
-      let used = 0;
-      while (used < width) {
-        const cell = makeCell(next, H, r);
-        cells.push(cell);
-        used += cell.w + (cells.length > 1 ? FILL.gap : 0);
-        n += cell.words;
-      }
-      // 行の幅にぴったり合わせる。はみ出しすぎるなら最後の 1 つを外して、広げて合わせる
-      const gaps = (k) => FILL.gap * (k - 1);
-      const sum = (list) => list.reduce((a, c) => a + c.w, 0);
-      let k = (width - gaps(cells.length)) / sum(cells);
-      if (k < 0.78 && cells.length > 1) {
-        const fewer = cells.slice(0, -1);
-        const k2 = (width - gaps(fewer.length)) / sum(fewer);
-        if (k2 < 1.5) {
-          cells.pop();
-          k = k2;
-        }
-      }
-      const row = document.createElement('div');
-      row.className = 'fill-row';
-      row.style.height = `${(H * k).toFixed(1)}px`;
-      for (const cell of cells) row.append(cell.render(k, n++));
-      frag.append(row);
-      height += H * k + FILL.rowGap;
     }
-    fill.append(frag);
+    nctx.putImageData(img, 0, 0);
   }
 
-  // 1 つの枠：言葉 1 つ（横書き）／小さな言葉を縦に積んだ束／縦書き。w はその枠の幅（px）
-  function makeCell(next, H, r) {
-    const roll = r();
-    if (H > 60 && roll < FILL.stack) {
-      const count = H > 100 ? 3 + Math.floor(r() * 2) : 2 + Math.floor(r() * 2);
-      const fs = (H / count) * 0.92;
-      const texts = Array.from({ length: count }, next);
-      const w = Math.max(...texts.map((t) => measure(t, fs)));
-      return { w, words: count, render: (k, i) => stackEl(texts, fs * k, i, r) };
-    }
-    const text = next();
-    const len = [...text].length;
-    if (H > 60 && roll < FILL.stack + FILL.vertical && isJapanese(text) && len >= 2 && len <= 8) {
-      const fs = (H / len) * 0.98;
-      return { w: fs, words: 1, render: (k, i) => wordEl(text, fs * k, i, r, true) };
-    }
-    const fs = H * 0.9;
-    return { w: measure(text, fs), words: 1, render: (k, i) => wordEl(text, fs * k, i, r, false) };
-  }
-
-  function wordEl(text, fs, i, r, vertical) {
-    const el = document.createElement('span');
-    el.textContent = isJapanese(text) ? text : text.toUpperCase();
-    el.style.fontSize = `${fs.toFixed(1)}px`;
-    el.style.setProperty('--o', (0.55 + r() * 0.45).toFixed(2));
-    el.style.setProperty('--d', `${Math.min(i * 6, 1300)}ms`);
-    if (vertical) el.classList.add('is-vertical');
-    const deco = r();
-    if (deco < FILL.invert) el.classList.add('is-invert');
-    else if (deco < FILL.invert + FILL.rule) el.classList.add('is-rule');
-    return el;
-  }
-
-  function stackEl(texts, fs, i, r) {
-    const box = document.createElement('div');
-    box.className = 'fill-stack';
-    for (const t of texts) box.append(wordEl(t, fs, i++, r, false));
-    return box;
-  }
+  // ---------- 開く・閉じる ----------
 
   function show() {
     if (open) return;
@@ -166,18 +198,16 @@ export function createAboutView({ onOpen, onClose } = {}) {
     returnFocus = document.activeElement;
     root.hidden = false;
     root.classList.remove('is-closing');
-    render();
+    compose();
     scroller.scrollTop = 0;
-    // 明朝の字体が届いたら、測り直して詰め直す（届く前は代わりの字体の幅で並べている）
-    const text = [ABOUT.main, ...ABOUT.fill].join('').toUpperCase();
-    document.fonts
-      ?.load(`900 40px ${FILL.font}`, text)
-      .then(() => open && renderFill())
-      .catch(() => {});
-    // 1 フレーム待ってから現れるアニメーションを始める
     requestAnimationFrame(() => root.classList.add('is-open'));
-    closeButton.focus({ preventScroll: true });
+    root.focus({ preventScroll: true });
     history.replaceState(null, '', '#about');
+    t0 = performance.now();
+    nextBurst = NOISE.introSeconds + rr(1.5, 3.5);
+    burstEnd = 0;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(frame);
     onOpen?.();
   }
 
@@ -186,25 +216,29 @@ export function createAboutView({ onOpen, onClose } = {}) {
     open = false;
     root.classList.remove('is-open');
     root.classList.add('is-closing');
+    // 消えるときも一瞬乱れる
+    burstEnd = (performance.now() - t0) / 1000 + 0.35;
     history.replaceState(null, '', location.pathname + location.search);
     returnFocus?.focus?.({ preventScroll: true });
     onClose?.();
     closeTimer = setTimeout(() => {
       root.hidden = true;
       root.classList.remove('is-closing');
-    }, 450);
+      cancelAnimationFrame(raf);
+    }, 420);
   }
 
-  closeButton.addEventListener('click', hide);
+  // 文字のない所を押したら閉じる（スクロールのためのドラッグでは click が来ないので閉じない）
+  root.addEventListener('click', (e) => {
+    if (!e.target.closest('.about-block')) hide();
+  });
   addEventListener('keydown', (e) => e.key === 'Escape' && hide());
-  // 画面の大きさが変わったら、埋める言葉の量を合わせ直す
   let resizeTimer = 0;
   addEventListener('resize', () => {
     if (!open) return;
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(renderFill, 200);
+    resizeTimer = setTimeout(compose, 200);
   });
-  page.addEventListener('click', (e) => e.stopPropagation());
 
   return {
     open: show,
@@ -215,16 +249,12 @@ export function createAboutView({ onOpen, onClose } = {}) {
   };
 }
 
-// 言葉の幅（px）。canvas で同じ字体の幅を測る
-const ctx = document.createElement('canvas').getContext('2d');
-function measure(text, fs) {
-  const t = isJapanese(text) ? text : text.toUpperCase();
-  ctx.font = `900 100px ${FILL.font}`;
-  return (ctx.measureText(t).width * fs) / 100;
-}
-
 function isJapanese(text) {
   return /[぀-ヿ一-鿿]/.test(text);
+}
+
+function rr(a, b) {
+  return a + Math.random() * (b - a);
 }
 
 function rand(seed) {

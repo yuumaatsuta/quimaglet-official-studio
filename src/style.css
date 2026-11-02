@@ -544,26 +544,41 @@ body:not(.is-holo) .holo-beam {
   background: rgba(0, 0, 0, 0.65);
 }
 
-/* ---------- about（画面いっぱいの文字） ---------- */
-/* 部屋の上に、白い明朝の言葉を敷き詰める。左にメインの文章を壁ぞろえで流し、まわりを言葉で埋める */
+/* ---------- about（カメラの映像に映り込む文字） ---------- */
+/* 背景は暗くしない。本文もまわりの言葉も同じ明朝・同じ白で組み、本文が溶け込むようにする。
+   画面全体にざらつき（canvas）を重ね、ときどき文字ごと乱れる（aboutView.js） */
 
 .about-view {
   position: fixed;
   inset: 0;
   z-index: 4;
-  background: rgba(3, 3, 5, 0.7);
   color: #fff;
   font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
-  font-weight: 900;
+  font-weight: 700;
   opacity: 0;
-  transition: opacity 0.45s ease;
+  transition: opacity 0.35s steps(4);
+  outline: none;
+  cursor: default;
 }
 .about-view.is-open {
   opacity: 1;
 }
-/* 読んでいる間も、上のメニューは押せるように前へ */
 body.is-about .site-header {
   z-index: 5;
+}
+/* 読んでいる間は IMMERSE を隠す（文字と重なるので） */
+body.is-about .hero {
+  visibility: hidden;
+}
+
+.about-noise {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+  mix-blend-mode: screen;
 }
 
 .about-scroll {
@@ -572,146 +587,95 @@ body.is-about .site-header {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.about-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .about-page {
+  padding: 18vh max(var(--pad), 5vw) 10vh;
+  will-change: transform;
+}
+
+.about-row {
   display: grid;
-  grid-template-columns: minmax(17rem, 33rem) 1fr;
-  gap: 0 1.4rem;
-  padding: max(110px, calc(150 * var(--u))) max(var(--pad), 3vw) 9rem max(var(--pad), 5vw);
-  min-height: 100%;
+  grid-template-columns: repeat(var(--cols, 12), minmax(0, 1fr));
+  column-gap: 2vw;
+  align-items: start;
 }
 
-.about-main {
-  position: relative;
-  font-size: clamp(1rem, 1.35vw, 1.3rem);
-  line-height: 1.95;
-  letter-spacing: 0.04em;
-  text-align: left;
-  text-shadow: 0 0 18px rgba(0, 0, 0, 0.9);
-}
-.about-main p {
-  margin: 0 0 1.6em;
+/* 明るい部屋の上でも読めるよう、ごく薄い影だけ付ける（背景は暗くしない） */
+.about-block {
+  margin: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 22px rgba(0, 0, 0, 0.35);
   opacity: 0;
-  transform: translateY(12px);
+  overflow-wrap: anywhere;
 }
-.about-main .about-title {
-  font-size: 2em;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
-  border-bottom: 2px solid #fff;
-  padding-bottom: 0.25em;
+.about-block.is-xl {
+  font-size: clamp(2.8rem, 7.4vw, 7.6rem);
+  line-height: 0.98;
+  font-weight: 900;
+  letter-spacing: -0.01em;
 }
-.about-main .about-en {
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+.about-block.is-l {
+  font-size: clamp(1.9rem, 3.6vw, 3.6rem);
+  line-height: 1.1;
+  font-weight: 900;
 }
-
-.about-fill {
-  overflow: hidden;
+.about-block.is-m {
+  font-size: clamp(1.15rem, 1.6vw, 1.55rem);
+  line-height: 2;
+  letter-spacing: 0.03em;
 }
-.fill-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 3px;
-  overflow: hidden;
-  white-space: nowrap;
+.about-block.is-s {
+  font-size: clamp(0.78rem, 0.9vw, 0.95rem);
+  line-height: 1.7;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.fill-row span,
-.fill-stack {
-  flex: none;
-  line-height: 1;
-  letter-spacing: 0;
-}
-.about-fill span {
-  display: block;
-  opacity: 0;
-}
-.fill-stack {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.04em;
-}
-.about-fill .is-vertical {
+.about-block.is-vertical {
   writing-mode: vertical-rl;
-  text-orientation: upright;
-}
-.about-fill .is-invert {
-  background: #fff;
-  color: #050505;
-  padding: 0 0.12em;
-}
-.about-fill .is-rule {
-  border-top: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
+  justify-self: start;
 }
 
-.about-view.is-open .about-main p {
-  animation: about-up 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) var(--d) both;
+/* 映り始め：ちらつきながら現れる */
+.about-view.is-open .about-block {
+  animation: about-flicker 0.9s steps(1) var(--d) both;
 }
-.about-view.is-open .about-fill span {
-  animation: about-in 0.5s ease var(--d) both;
-}
-@keyframes about-up {
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes about-in {
-  to {
-    opacity: var(--o);
-    transform: none;
-  }
+@keyframes about-flicker {
+  0% { opacity: 0; }
+  12% { opacity: 0.85; }
+  18% { opacity: 0; }
+  30% { opacity: 1; }
+  36% { opacity: 0.15; }
+  48% { opacity: 1; }
+  100% { opacity: 1; }
 }
 
-.about-close {
-  position: fixed;
-  z-index: 6;
-  right: max(var(--pad), env(safe-area-inset-right));
-  bottom: max(20px, calc(28 * var(--u)), env(safe-area-inset-bottom));
-  width: 52px;
-  height: 52px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  font-size: 26px;
-  line-height: 1;
-  cursor: pointer;
+/* 乱れているあいだ：色が左右に分かれ、ときどき一部が消える */
+.about-page.is-glitch .about-block {
+  text-shadow: 2px 0 rgba(255, 0, 70, 0.75), -2px 0 rgba(0, 210, 255, 0.75), 0 0 18px rgba(0, 0, 0, 0.35);
+}
+.about-page .about-block.is-off {
+  visibility: hidden;
 }
 
-/* スマホ：言葉は背景いっぱいに薄く敷き、その上にメインの文章を流す */
+/* スマホ：6 列で組む */
 @media (max-width: 720px) {
   .about-page {
-    display: block;
-    position: relative;
-    padding-top: 96px;
+    padding-top: 14vh;
   }
-  .about-main {
-    font-size: 1rem;
-    max-width: 30rem;
-  }
-  .about-main .about-title {
-    font-size: 1.6em;
-  }
-  .about-fill {
-    position: absolute;
-    inset: 0;
-    padding: 70px 8px 0;
-    opacity: 0.15;
-    pointer-events: none;
+  .about-block.is-m {
+    font-size: 1.12rem;
+    line-height: 1.95;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .about-view.is-open .about-main p,
-  .about-view.is-open .about-fill span {
-    animation-duration: 0.01s;
-    animation-delay: 0s;
+  .about-view.is-open .about-block {
+    animation: none;
+    opacity: 1;
   }
 }
 
