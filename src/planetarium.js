@@ -239,9 +239,9 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
     const level = THREE.MathUtils.lerp(faint, 1, w) * drop;
     glowColor.lerpColors(FAINT, MOON, w);
     moonMat.emissive.copy(glowColor);
-    moonMat.emissiveIntensity = THREE.MathUtils.lerp(0.55, 1.5, w) * level;
+    moonMat.emissiveIntensity = THREE.MathUtils.lerp(0.4, 1.5, w) * level;
     halo.material.color.copy(glowColor);
-    halo.material.opacity = THREE.MathUtils.lerp(0.35, 0.6, w) * level;
+    halo.material.opacity = THREE.MathUtils.lerp(0.25, 0.6, w) * level;
     glowLight.color.copy(glowColor);
     glowLight.intensity = THREE.MathUtils.lerp(0.15, 1.2, w) * level;
     group.userData.dim = glow * SKY.dim;
@@ -319,18 +319,18 @@ function moonTexture() {
     [820, 200, 30],
   ];
   for (const [x, y, r] of seas) {
-    for (let k = 0; k < 5; k++) blob(x + (rand() - 0.5) * r, y + (rand() - 0.5) * r * 0.7, r * (0.5 + rand() * 0.6), 0.35);
+    for (let k = 0; k < 5; k++) blob(x + (rand() - 0.5) * r, y + (rand() - 0.5) * r * 0.7, r * (0.5 + rand() * 0.6), 0.26);
   }
   // クレーター：暗い窪みと、片側の明るい縁
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 180; i++) {
     const x = rand() * w;
     const y = h * 0.08 + rand() * h * 0.84;
     const r = 2 + rand() ** 3 * 22;
-    g.fillStyle = `rgba(90,88,82,${0.25 + rand() * 0.25})`;
+    g.fillStyle = `rgba(110,107,100,${0.1 + rand() * 0.14})`;
     g.beginPath();
     g.arc(x, y, r, 0, Math.PI * 2);
     g.fill();
-    g.strokeStyle = `rgba(245,242,232,${0.35 + rand() * 0.3})`;
+    g.strokeStyle = `rgba(245,242,232,${0.18 + rand() * 0.2})`;
     g.lineWidth = Math.max(1, r * 0.22);
     g.beginPath();
     g.arc(x, y, r, Math.PI * 0.9, Math.PI * 1.9);
