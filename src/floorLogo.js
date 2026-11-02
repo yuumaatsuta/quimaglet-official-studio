@@ -81,12 +81,12 @@ export async function buildFloorLogo(manager) {
       roughnessMap: r,
       metalness: 0,
       normalMap: n,
-      normalScale: new THREE.Vector2(0.55, 0.55),
+      normalScale: new THREE.Vector2(0.4, 0.4),
       // 塗装の艶。へこみは艶の層にも出す
       clearcoat: 0.55,
       clearcoatRoughness: 0.12,
       clearcoatNormalMap: n,
-      clearcoatNormalScale: new THREE.Vector2(0.55, 0.55),
+      clearcoatNormalScale: new THREE.Vector2(0.4, 0.4),
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
@@ -209,12 +209,12 @@ function addBoxUV(geo) {
 function dentTextures(rand) {
   const N = 512;
   const height = new Float32Array(N * N);
-  const dents = 9;
+  const dents = 3; // 文字ごとに模様の位置をずらすので、見えるのは 1 文字に 0〜2 個ほど
   for (let d = 0; d < dents; d++) {
     const cx = rand() * N;
     const cy = rand() * N;
     const r = 6 + rand() ** 2 * 26; // ほとんどは小さく、たまに大きめ
-    const depth = 0.4 + rand() * 0.6;
+    const depth = 0.3 + rand() * 0.4;
     const sx = 0.6 + rand() * 0.8; // 少し楕円に
     for (let y = Math.floor(cy - r * 2); y < cy + r * 2; y++) {
       for (let x = Math.floor(cx - r * 2); x < cx + r * 2; x++) {
