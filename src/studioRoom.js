@@ -719,6 +719,14 @@ const WANDER = {
   summonSpeed: 1.6, // 呼ばれて飛ぶ速さ（m/秒）
   summonAccel: 1.4,
   projectPitch: 0.3, // 映すときのうつむき（rad）。投影口を下のパネルへ向ける
+  // About を読んでいる間（setPeek）。ときどき目の前まで来て、こちらを確かめ、首をかしげて戻る
+  peekDistance: 0.62, // 目からどれだけ手前で止まるか（m）
+  peekSpeed: 1.25,
+  peekAccel: 1.1,
+  peekFirst: [2.5, 4.5], // 読み始めてから最初に来るまで（秒）
+  peekEvery: [9, 16], // 戻ってから次に来るまで（秒）
+  peekStare: 1.2, // 止まってじっと見る時間（秒）
+  peekTilt: 0.42, // 首をかしげる角度（rad）
 };
 
 // 顔の下の光るスロット（ホログラムの投影口）。robot.glb の元の座標（底 y = 0、正面 +z）
@@ -795,6 +803,12 @@ function robotWander(model, item) {
     beam: 0, // ホログラムの投影の強さ（main.js から）
     pokeT: null, // 押されてからの時間（秒）。反応していないときは null
     curious: false, // 押された後の、きょろきょろ見回している間
+    pz: null, // 奥行き。ふだんは往復する通り道、のぞき込むときだけ目の前まで出てくる
+    roll: 0, // 首のかしげ
+    rollTarget: 0,
+    peekOn: false, // About を読んでいる間
+    peekTimer: 0,
+    peek: null, // のぞき込みの途中 { phase: in / stare / tilt / out, t, side, backX }
   };
 
   // 画面上の位置（窓の左右・上下の割合 -1〜1）を、目から見てその位置に重なる深さ z の点にする
@@ -821,7 +835,9 @@ function robotWander(model, item) {
     st.stopAt = Math.random() < WANDER.stopChance ? rand(0.3, 0.7) : null;
   }
 
+  let lastView = null;
   body.userData.update = (t, view) => {
+    lastView = view ?? lastView;
     const dt = Math.min(t - st.last, 0.1);
     st.last = t;
     const z = view ? view.win.cz + WANDER.front : item.z;
@@ -833,7 +849,82 @@ function robotWander(model, item) {
     // 進む方向を向き、少しだけこちらに顔を向ける
     const travelYaw = st.dir * (Math.PI / 2 - 0.35);
 
-    if (st.mode === 'summon') {
+    if (st.pz === null) st.pz = z;
+    st.laneZ = z;
+    st.rollTarget = 0;
+    // About を読んでいる間は、ときどき目の前までのぞきに来る
+    if (st.peekOn && st.mode !== 'summon' && st.mode !== 'peek') {
+      st.peekTimer -= dt;
+      if (st.peekTimer <= 0) {
+        st.mode = 'peek';
+        st.peek = { phase: 'in', t: 0, side: Math.random() < 0.5 ? -1 : 1, backX: 0 };
+        st.speed = 0;
+        st.curious = false;
+      }
+    }
+
+    if (st.mode === 'peek') {
+      const pk = st.peek;
+      pk.t += dt;
+      const eye = view?.liveEye ?? view?.eye;
+      // 目の真ん前より少し横・少し下（顔が画面の中ほどに大きく来る）
+      const front = eye
+        ? { x: eye.x + pk.side * 0.08, y: eye.y - 0.06, z: eye.z - WANDER.peekDistance }
+        : { x: st.x, y: st.y, z: st.pz };
+      if (pk.phase === 'in' || pk.phase === 'out') {
+        const goal = pk.phase === 'in' ? front : { x: pk.backX, y: e.y, z };
+        const dx = goal.x - st.x;
+        const dy = goal.y - st.y;
+        const dz = goal.z - st.pz;
+        const dist = Math.hypot(dx, dy, dz);
+        const cap = Math.min(WANDER.peekSpeed, Math.sqrt(2 * WANDER.peekAccel * dist));
+        st.speed = Math.min(st.speed + WANDER.peekAccel * dt, cap);
+        const step = Math.min(dist, st.speed * dt);
+        if (dist > 1e-4) {
+          st.x += (dx / dist) * step;
+          st.y += (dy / dist) * step;
+          st.pz += (dz / dist) * step;
+        }
+        // 進む方を向く。近づき終わる手前からは、こちら（正面）を向く
+        const travel = Math.abs(dx) + Math.abs(dz) > 1e-3 ? Math.atan2(dx, dz) : 0;
+        const near = pk.phase === 'in' ? THREE.MathUtils.smoothstep(dist, 0.12, 0.6) : 1;
+        st.yawTarget = travel * near;
+        st.pitchTarget = 0;
+        if (dist < 0.02) {
+          if (pk.phase === 'in') {
+            pk.phase = 'stare';
+            pk.t = 0;
+            st.speed = 0;
+          } else {
+            st.mode = 'move';
+            st.stopAt = null;
+            st.peek = null;
+            st.peekTimer = rand(...WANDER.peekEvery);
+          }
+        }
+      } else {
+        // じっと見る → 首をかしげる。目が動いても目の前に留まる
+        st.x = damp(st.x, front.x, 3, dt);
+        st.y = damp(st.y, front.y, 3, dt);
+        st.pz = damp(st.pz, front.z, 3, dt);
+        st.yawTarget = 0;
+        st.pitchTarget = -0.06; // 少し見上げてのぞき込む
+        if (pk.phase === 'stare' && pk.t > WANDER.peekStare) {
+          pk.phase = 'tilt';
+          pk.t = 0;
+        } else if (pk.phase === 'tilt') {
+          // 「？」と大きくかしげ、少し戻して、もう一度小さくかしげる
+          st.rollTarget = pk.t < 0.9 ? pk.side * WANDER.peekTilt : pk.t < 1.3 ? pk.side * 0.1 : pk.t < 1.9 ? pk.side * 0.28 : 0;
+          if (pk.t > 2.2) {
+            pk.phase = 'out';
+            pk.t = 0;
+            // 通り道の、今いるあたりへ戻ってから、また往復を続ける
+            pk.backX = THREE.MathUtils.clamp(st.x, e.left + 0.3, e.right - 0.3);
+            st.dir = Math.random() < 0.5 ? -1 : 1;
+          }
+        }
+      }
+    } else if (st.mode === 'summon') {
       // 呼ばれた位置（画面の中央上）へ飛ぶ。目が動いても画面上の同じ位置に留まるよう、毎回計算し直す
       const eye = view?.liveEye ?? view?.eye;
       const goal = eye ? screenPoint(eye, view.win, st.summon.sx, st.summon.sy, z) : { x: item.x, y: item.float };
@@ -925,19 +1016,23 @@ function robotWander(model, item) {
 
     // 見回しは機敏に、移動中の向き変えはゆったり（押された直後はすばやく振り向く）
     const rate = st.curious ? 7 : st.mode === 'look' || (st.pokeT !== null && st.pokeT < 0.55) ? 6 : 2.5;
-    st.yaw = damp(st.yaw, st.yawTarget, rate, dt);
+    st.yaw = damp(st.yaw, st.yawTarget, st.mode === 'peek' ? 4 : rate, dt);
     st.pitch = damp(st.pitch, st.pitchTarget, rate, dt);
+    st.roll = damp(st.roll, st.rollTarget, 3.2, dt);
+    // のぞき込み以外は、通り道の奥行きへなめらかに戻る
+    if (st.mode !== 'peek') st.pz = damp(st.pz, z, 2, dt);
 
     // 普段の高さ。呼ばれた後は、ここへゆっくり戻る
     if (st.y === null) st.y = e.y;
-    else if (st.mode !== 'summon') st.y = damp(st.y, e.y, 1.5, dt);
+    else if (st.mode !== 'summon' && st.mode !== 'peek') st.y = damp(st.y, e.y, 1.5, dt);
 
     // 進むときに少し前のめり。映している間は揺れを小さくする
     const lean = Math.min(1, st.speed / WANDER.speed);
     const bob = st.mode === 'summon' && st.arrived ? 0.35 : 1;
-    body.position.set(st.x, st.y + (Math.sin(t * 0.9) * 0.06 + Math.sin(t * 0.37) * 0.03) * bob + hop, z);
+    const still = st.mode === 'peek' && st.peek?.phase !== 'in' && st.peek?.phase !== 'out' ? 0.3 : 1;
+    body.position.set(st.x, st.y + (Math.sin(t * 0.9) * 0.06 + Math.sin(t * 0.37) * 0.03) * bob * still + hop, st.pz);
     body.rotation.set(0, st.yaw, 0);
-    head.rotation.set(st.pitch + Math.sin(t * 0.6) * 0.04 + lean * 0.12, 0, Math.sin(t * 0.73) * 0.04 + roll);
+    head.rotation.set(st.pitch + Math.sin(t * 0.6) * 0.04 + lean * 0.12, 0, Math.sin(t * 0.73) * 0.04 * still + roll + st.roll);
   };
   body.userData.update(0);
 
@@ -945,7 +1040,19 @@ function robotWander(model, item) {
   body.userData.robot = {
     emitter,
     // 画面上の位置 sx, sy（-1〜1）へ呼ぶ
+    // About を読んでいる間だけ、ときどき目の前までのぞきに来る。やめると、のぞき込みの途中なら戻る
+    setPeek(on) {
+      if (on === st.peekOn) return;
+      st.peekOn = on;
+      if (on) st.peekTimer = rand(...WANDER.peekFirst);
+      else if (st.mode === 'peek' && st.peek.phase !== 'out') {
+        const e = edges(lastView, st.laneZ ?? st.pz);
+        st.peek.phase = 'out';
+        st.peek.backX = THREE.MathUtils.clamp(st.x, e.left + 0.3, e.right - 0.3);
+      }
+    },
     summon(sx, sy) {
+      if (st.mode === 'peek') st.peek = null;
       st.summon = { sx, sy };
       st.arrived = false;
       st.curious = false;

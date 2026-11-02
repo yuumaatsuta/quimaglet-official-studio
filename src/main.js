@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CONFIG } from './config.js';
-import { SECTIONS } from './content.js';
+import { createAboutView } from './aboutView.js';
+import { SECTIONS, loadContent } from './content.js';
 import { createHotspots } from './hotspots.js';
 import { createInput, isTouchDevice } from './input.js';
 import { createPanel } from './panel.js';
@@ -31,6 +32,8 @@ scene.background = new THREE.Color('#000');
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
+// 文章とお知らせ（public/content.json。管理画面 /admin/ で書き換える）。部屋より先に読む（お知らせの投影に使う）
+await loadContent();
 const room = await loadRoom(CONFIG.modelUrl, (p) => {
   bootLabel.textContent = `LOADING... ${Math.floor(p * 100)}%`;
 });
@@ -355,7 +358,23 @@ const panel = createPanel(SECTIONS, {
     document.body.classList.remove('is-holo');
     room.robot?.release({ win });
   },
-  onClose: () => !zoom.target && !holo.pending && hotspots.setEnabled(true),
+  onClose: () => !zoom.target && !holo.pending && !about.isOpen && hotspots.setEnabled(true),
+});
+
+// About だけは、ホログラムではなく画面いっぱいの文字で見せる（aboutView.js）。
+// 読んでいる間、お知らせのロボットは画面の外へはけ、往復するロボットがときどき目の前までのぞきに来る
+const about = createAboutView({
+  onOpen: () => {
+    zoomOut();
+    hotspots.setEnabled(false);
+    document.body.classList.add('is-about');
+    room.robot?.setPeek?.(true);
+  },
+  onClose: () => {
+    document.body.classList.remove('is-about');
+    room.robot?.setPeek?.(false);
+    if (!zoom.target && !panel.isOpen && !holo.pending) hotspots.setEnabled(true);
+  },
 });
 
 // ---------- ロボットを押す ----------
@@ -423,6 +442,18 @@ const emitterPos = new THREE.Vector3();
 
 function requestSection(id) {
   if (!SECTIONS[id]) return;
+  if (id === 'about') {
+    // ロボットを呼んでいる途中・ほかのページを映している途中なら、やめてから開く
+    if (holo.pending) {
+      holo.pending = null;
+      holo.beamTo = 0;
+      room.robot?.release({ win });
+    }
+    if (panel.isOpen) panel.close();
+    about.open();
+    return;
+  }
+  if (about.isOpen) about.close();
   if (!room.robot || panel.isOpen) return panel.open(id);
   zoomOut();
   hotspots.setEnabled(false);
@@ -553,7 +584,7 @@ renderer.setAnimationLoop(() => {
   updateRobotHover();
   updateHologram(dt, t);
   // ほかのメニューを開いている（呼んでいる・ズームしている）間は、お知らせのロボットを画面の外へはけさせる
-  room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target);
+  room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen);
   renderer.render(scene, camera);
 });
 

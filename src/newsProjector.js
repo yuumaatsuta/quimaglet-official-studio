@@ -344,7 +344,9 @@ function drawCard() {
       image = img;
       draw();
     };
-    img.src = `${import.meta.env.BASE_URL}${LATEST_NEWS.image}`;
+    // 外の画像（URL）も使える。canvas に描くので、CORS を許可していない所の画像は読めない（仮のサムネイルのまま）
+    img.crossOrigin = 'anonymous';
+    img.src = /^https?:/.test(LATEST_NEWS.image) ? LATEST_NEWS.image : `${import.meta.env.BASE_URL}${LATEST_NEWS.image}`;
   }
   return { texture };
 }
