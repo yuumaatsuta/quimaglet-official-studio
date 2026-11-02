@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // 夜になると、画面の手前に天井からマイクが 1 本垂れてくる。マイクの中は青く光っている。
-// 触れるとバチバチと火花が散って中が赤く光り、カメラの後ろのプロジェクターから部屋じゅうに星空を映す（プラネタリウム）。
+// 触れると中の光がバチバチとでたらめに点滅してから赤く光り、カメラの後ろのプロジェクターから部屋じゅうに星空を映す（プラネタリウム）。
 // 同時にカメラの真上の小さな明かりが点き、手前のロボットと床の文字がうっすら見える。
 // もう一度触れると消える。朝になるとマイクは天井へ戻る
 
@@ -43,58 +43,27 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
     new THREE.CylinderGeometry(0.0035, 0.0035, 1, 6).translate(0, -0.5, 0),
     new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.6 }),
   );
+  cable.userData.noPick = true;
   pivot.add(cable);
-  const { mic, coreMat, head, headSize, length: micLength } = buildMic();
+  const { mic, coreMat, head, length: micLength } = buildMic();
   mic.scale.setScalar(SKY.micScale);
   pivot.add(mic);
-  const hit = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshBasicMaterial({ visible: false }));
-  hit.position.y = -0.11;
-  mic.add(hit); // 押しやすいよう、見た目より大きく
+  // 押しやすいよう頭のまわりを少しだけ大きく。メニューなど部屋の押せる物の判定は遮らない（noPick）
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.copy(head);
+  hit.userData.noPick = true;
+  mic.add(hit);
   // 頭の中の光：格子のすき間から漏れる光のにじみと、まわりを少し照らす光
   const halo = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: glowTexture(), color: BLUE, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }),
   );
   halo.scale.setScalar(0.24);
   halo.position.copy(head);
+  halo.userData.noPick = true;
   mic.add(halo);
   const glowLight = new THREE.PointLight(BLUE, 0, 1.6, 2);
   glowLight.position.copy(head);
   mic.add(glowLight);
-  // 触れたときの火花（頭のまわりに走る、ぎざぎざの稲妻）
-  const sparkMat = new THREE.LineBasicMaterial({ color: ZAP, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  const sparks = [];
-  for (let i = 0; i < 7; i++) {
-    const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(8 * 3), 3));
-    const line = new THREE.Line(geo, sparkMat);
-    line.frustumCulled = false;
-    line.visible = false;
-    mic.add(line);
-    sparks.push(line);
-  }
-  const sp = new THREE.Vector3();
-  const sd = new THREE.Vector3();
-  const zapSparks = () => {
-    for (const line of sparks) {
-      line.visible = Math.random() < 0.75;
-      if (!line.visible) continue;
-      // 頭の表面のどこかから、外へ向かってぎざぎざに伸ばす
-      sd.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-      sp.set(sd.x * headSize.x, sd.y * headSize.y, sd.z * headSize.z).add(head);
-      const length = 0.035 + Math.random() * 0.06;
-      const arr = line.geometry.attributes.position;
-      for (let k = 0; k < 8; k++) {
-        const f = (k / 7) * length;
-        const j = k === 0 ? 0 : 0.009;
-        arr.setXYZ(
-          k,
-          sp.x + sd.x * f + (Math.random() - 0.5) * j,
-          sp.y + sd.y * f + (Math.random() - 0.5) * j,
-          sp.z + sd.z * f + (Math.random() - 0.5) * j,
-        );
-      }
-      arr.needsUpdate = true;
-    }
-  };
 
   // ---------- 星を映すプロジェクター（カメラの後ろ）と、手元の明かり（カメラの真上） ----------
 
@@ -184,6 +153,8 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
   let zapping = -1; // バチバチしている残り時間（< 0 なら していない）
   let zapTo = false; // バチバチが終わったら点けるか消すか
   let nextZap = 0;
+  let zapLevel = 0;
+  const zapColor = new THREE.Color();
   let red = 0; // 中の光の色 0 = 青、1 = 赤
   const glowColor = new THREE.Color();
   let lastKey = null;
@@ -228,22 +199,18 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
     red = THREE.MathUtils.clamp(red + (on ? dt : -dt) * 2.5, 0, 1);
     glowColor.lerpColors(BLUE, RED, red);
     let level = (0.75 + 0.25 * Math.sin(t * 1.7)) * drop;
-    mic.position.x = 0;
     if (zapping >= 0) {
+      // 接触の悪いネオンのように、でたらめな間隔で消えたり強く光ったりする
       zapping -= dt;
       if (t >= nextZap) {
-        nextZap = t + 0.04 + Math.random() * 0.05;
-        zapSparks();
+        nextZap = t + 0.03 + Math.random() * 0.09;
+        const pick = Math.random();
+        zapLevel = pick < 0.35 ? 0 : pick < 0.55 ? 0.2 : 1.4 + Math.random() * 1.4;
+        zapColor.copy(Math.random() < 0.4 ? ZAP : Math.random() < 0.5 ? BLUE : RED);
       }
-      const flash = Math.random();
-      glowColor.lerp(ZAP, flash);
-      level = 0.3 + flash * 2.2;
-      mic.position.x = (Math.random() - 0.5) * 0.006;
-      sparkMat.opacity = 0.5 + Math.random() * 0.5;
-      if (zapping < 0) {
-        on = zapTo;
-        for (const line of sparks) line.visible = false;
-      }
+      glowColor.copy(zapColor);
+      level = zapLevel * drop;
+      if (zapping < 0) on = zapTo;
     }
     coreMat.emissive.copy(glowColor);
     coreMat.emissiveIntensity = 2.2 * level;
@@ -265,7 +232,6 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
       if (!night) {
         on = false;
         zapping = -1;
-        for (const line of sparks) line.visible = false;
       }
     },
     // instant: 待たずにすぐ映す（確認用）
@@ -277,7 +243,7 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
         power = red = on ? 1 : 0;
         return;
       }
-      // バチバチしてから切り替える
+      // でたらめに点滅してから切り替える
       zapping = SKY.zapSeconds;
       zapTo = !on;
     },
@@ -295,65 +261,75 @@ const BLUE = new THREE.Color('#2f7dff');
 const RED = new THREE.Color('#ff2a18');
 const ZAP = new THREE.Color('#e6f1ff');
 
-// 1950 年代のステージ用のような、楕円の頭に横の格子が巻いたクロームのマイク。
-// 立てた向きで作ってから逆さにし、台座の端からケーブルで吊るす（原点がケーブルの付け根、マイクは -y へ伸びる）
+// 四角い頭のマイク。昔のステージ用マイクの横格子を、角ばった箱形・ガンメタルとネオンの筋でサイバーパンク寄りにしたもの。
+// 立てた向きで作ってから逆さにし、台座の端からケーブルで吊るす（原点がケーブルの付け根、マイクは -y へ伸びる）。
+// 中の芯とネオンの筋は coreMat で光る（色と明るさは update で変える）
 function buildMic() {
   const mic = new THREE.Group();
   const body = new THREE.Group();
   body.rotation.z = Math.PI;
   mic.add(body);
-  // 夜の暗い部屋でもクロームだとわかるよう、ほんの少しだけ自分で光らせる
-  const chrome = new THREE.MeshStandardMaterial({ color: '#e4e6ea', roughness: 0.12, metalness: 1, emissive: '#272a30' });
-  const black = new THREE.MeshStandardMaterial({ color: '#0d0d0f', roughness: 0.45, metalness: 0.3 });
-  const add = (geo, mat, x, y, z, parent = body) => {
+  // 夜の暗い部屋でも金属だとわかるよう、ほんの少しだけ自分で光らせる
+  const chrome = new THREE.MeshStandardMaterial({ color: '#e4e6ea', roughness: 0.14, metalness: 1, emissive: '#25282e' });
+  const gunmetal = new THREE.MeshStandardMaterial({ color: '#4a4e57', roughness: 0.32, metalness: 0.95, emissive: '#15171b' });
+  const black = new THREE.MeshStandardMaterial({ color: '#0b0b0d', roughness: 0.5, metalness: 0.3 });
+  const coreMat = new THREE.MeshStandardMaterial({ color: '#050608', roughness: 0.7, emissive: BLUE, emissiveIntensity: 0 });
+  const add = (geo, mat, x, y, z, shadow = true) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
-    m.castShadow = true;
-    parent.add(m);
+    m.castShadow = shadow;
+    body.add(m);
     return m;
   };
 
-  // 台座：根元が細く、頭のほうが太い、角を落とした箱。前に黒い板とスイッチ
-  const baseGeo = new RoundedBoxGeometry(0.03, 0.075, 0.028, 3, 0.006);
+  // 台座：根元が細く、頭のほうが太い角ばった箱。前に黒い板と、光る細い筋
+  const baseGeo = new RoundedBoxGeometry(0.03, 0.072, 0.026, 2, 0.004);
   const pos = baseGeo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const k = 0.72 + 0.28 * ((pos.getY(i) + 0.0375) / 0.075);
+    const k = 0.72 + 0.28 * ((pos.getY(i) + 0.036) / 0.072);
     pos.setX(i, pos.getX(i) * k);
     pos.setZ(i, pos.getZ(i) * k);
   }
   baseGeo.computeVertexNormals();
-  add(baseGeo, chrome, 0, 0.0375, 0);
-  add(new THREE.BoxGeometry(0.017, 0.038, 0.002), black, 0, 0.042, 0.0142);
-  add(new THREE.BoxGeometry(0.005, 0.01, 0.003), chrome, 0, 0.046, 0.0158);
+  add(baseGeo, gunmetal, 0, 0.036, 0);
+  add(new THREE.BoxGeometry(0.017, 0.04, 0.002), black, 0, 0.04, 0.0132);
+  add(new THREE.BoxGeometry(0.003, 0.028, 0.001), coreMat, 0, 0.04, 0.0145, false);
 
   // 首の継ぎ手：左右の板と、横に通したボルト・六角のナット
-  for (const x of [-0.013, 0.013]) add(new THREE.BoxGeometry(0.004, 0.032, 0.016), chrome, x, 0.086, 0);
-  add(new THREE.CylinderGeometry(0.005, 0.005, 0.032, 12).rotateZ(Math.PI / 2), chrome, 0, 0.092, 0);
-  add(new THREE.CylinderGeometry(0.008, 0.008, 0.004, 6).rotateZ(Math.PI / 2), chrome, 0.017, 0.092, 0);
-  add(new THREE.CylinderGeometry(0.011, 0.013, 0.012, 20), chrome, 0, 0.104, 0);
+  for (const x of [-0.013, 0.013]) add(new THREE.BoxGeometry(0.004, 0.032, 0.016), chrome, x, 0.084, 0);
+  add(new THREE.CylinderGeometry(0.005, 0.005, 0.032, 12).rotateZ(Math.PI / 2), chrome, 0, 0.09, 0);
+  add(new THREE.CylinderGeometry(0.008, 0.008, 0.004, 6).rotateZ(Math.PI / 2), chrome, 0.017, 0.09, 0);
+  add(new THREE.BoxGeometry(0.026, 0.01, 0.02), gunmetal, 0, 0.103, 0);
 
-  // 頭：中の光る芯と、横に巻いた格子、上の丸い蓋と下の帯
-  const HX = 0.036;
-  const HY = 0.05;
-  const HZ = 0.033;
-  const headY = 0.108 + HY;
-  const coreMat = new THREE.MeshStandardMaterial({ color: '#050608', roughness: 0.8, emissive: BLUE, emissiveIntensity: 0 });
-  add(new THREE.SphereGeometry(1, 24, 16).scale(HX * 0.86, HY * 0.9, HZ * 0.86), coreMat, 0, headY, 0).castShadow = false;
-  for (let i = 0; i <= 10; i++) {
-    const yy = -0.036 + i * 0.0072;
-    const s = Math.sqrt(1 - (yy / HY) ** 2);
-    const pts = [];
-    for (let k = 0; k < 40; k++) {
-      const a = (k / 40) * Math.PI * 2;
-      pts.push(new THREE.Vector3(Math.cos(a) * HX * s, 0, Math.sin(a) * HZ * s));
+  // 頭：角を丸めた箱。上下はガンメタルの蓋、間に角丸の四角い格子を巻き、中の芯が格子のすき間から光る
+  const W = 0.07;
+  const H = 0.1;
+  const D = 0.05;
+  const headY = 0.108 + H / 2;
+  add(new RoundedBoxGeometry(W - 0.012, H - 0.02, D - 0.012, 2, 0.006), coreMat, 0, headY, 0, false);
+  const lid = new RoundedBoxGeometry(W, 0.014, D, 2, 0.006);
+  add(lid, gunmetal, 0, headY + H / 2 - 0.007, 0);
+  add(lid, gunmetal, 0, headY - H / 2 + 0.007, 0);
+  const r = 0.011;
+  const pts = [];
+  for (let k = 0; k < 4; k++) {
+    // 四隅を丸めた四角を一周
+    const cx = (k === 0 || k === 3 ? 1 : -1) * (W / 2 - 0.002 - r);
+    const cz = (k < 2 ? 1 : -1) * (D / 2 - 0.002 - r);
+    const a0 = (k * Math.PI) / 2;
+    for (let j = 0; j <= 4; j++) {
+      const a = a0 + (j / 4) * (Math.PI / 2);
+      pts.push(new THREE.Vector3(cx + Math.cos(a) * r, 0, cz + Math.sin(a) * r));
     }
-    add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 48, 0.0027, 6, true), chrome, 0, headY + yy, 0);
   }
-  const cap = Math.acos(0.8);
-  add(new THREE.SphereGeometry(1, 28, 10, 0, Math.PI * 2, 0, cap).scale(HX, HY, HZ), chrome, 0, headY, 0);
-  add(new THREE.SphereGeometry(1, 28, 10, 0, Math.PI * 2, Math.PI - cap, cap).scale(HX, HY, HZ), chrome, 0, headY, 0);
+  const barGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.1), 64, 0.0026, 6, true);
+  for (let i = 0; i < 9; i++) add(barGeo, chrome, 0, headY - 0.034 + i * 0.0085, 0);
+  // 左右の側面を縦に走るネオンの筋
+  for (const x of [-W / 2 - 0.0012, W / 2 + 0.0012]) {
+    add(new THREE.BoxGeometry(0.0022, H - 0.03, 0.006), coreMat, x, headY, 0, false);
+  }
 
-  return { mic, coreMat, head: new THREE.Vector3(0, -headY, 0), headSize: new THREE.Vector3(HX, HY, HZ), length: headY + HY };
+  return { mic, coreMat, head: new THREE.Vector3(0, -headY, 0), length: headY + H / 2 };
 }
 
 function glowTexture() {
