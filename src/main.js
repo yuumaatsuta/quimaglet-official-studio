@@ -177,7 +177,7 @@ if (weather) {
     const instant = !shown;
     weather.set(params, { instant });
     shown = true;
-    // 夜はマイクを下ろす（触れると星空を映す）
+    // 夜は月を下ろす（触れると星空を映す）
     room.planetarium?.setNight(!!params.night);
     // 行き先の天気の環境マップを先に撮り、光と一緒に少しずつ替える
     if (!instant) weather.previewTarget(() => captureEnvironment(true));
@@ -353,8 +353,8 @@ function hitRobot(x, y) {
   return robotRay.intersectObject(room.robot.object, true).some((h) => h.object.isMesh && !h.object.userData.noPick);
 }
 
-// 夜のマイク（触れると星空を映す・消す）
-function hitMic(x, y) {
+// 夜の月（触れると星空を映す・消す）
+function hitMoon(x, y) {
   const sky = room.planetarium;
   if (!sky?.active) return false;
   robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
@@ -371,7 +371,7 @@ addEventListener('pointerup', (e) => {
   robotDown = null;
   if (moved > 8) return;
   if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
-  else if (hitMic(e.clientX, e.clientY)) room.planetarium.toggle();
+  else if (hitMoon(e.clientX, e.clientY)) room.planetarium.toggle();
 });
 addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') robotPointer = { x: e.clientX, y: e.clientY, dirty: true };
@@ -381,7 +381,7 @@ function updateRobotHover() {
   if (!robotPointer?.dirty) return;
   robotPointer.dirty = false;
   const over =
-    !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitMic(robotPointer.x, robotPointer.y));
+    !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitMoon(robotPointer.x, robotPointer.y));
   if (over === robotHovered) return;
   robotHovered = over;
   document.body.style.cursor = over ? 'pointer' : '';
@@ -545,7 +545,7 @@ requestAnimationFrame(() => {
 });
 // 真っ暗な部屋を少し見せてから、シャッターを上げる。
 // ?shutter=0.4 のように開き具合を固定することもできる（見た目の確認用）
-// ?stars のように付けると、夜のマイクが下りたら星空を映す（見た目の確認用）
+// ?stars のように付けると、夜の月が下りたら星空を映す（見た目の確認用）
 if (new URLSearchParams(location.search).has('stars')) {
   const wait = setInterval(() => {
     if (!room.planetarium?.active) return;
