@@ -211,6 +211,11 @@ export async function buildStudioRoom(onProgress) {
   lamp.position.set((tubeX0 + tubeX1) / 2, tubeY - 0.07, tubeZ);
   lamp.lookAt((tubeX0 + tubeX1) / 2, 0, tubeZ + 0.5);
   group.add(lamp);
+  // 同じ蛍光灯から奥の壁（落書きのメニュー）へ向かう光。プラネタリウムで部屋を暗くしても、これだけは残す
+  const menuLamp = new THREE.RectAreaLight('#fff4e6', 0, tubeX1 - tubeX0, 0.12);
+  menuLamp.position.set((tubeX0 + tubeX1) / 2, tubeY - 0.05, tubeZ - 0.04);
+  menuLamp.lookAt(-0.2, 4.1, -D);
+  group.add(menuLamp);
   pipe([tubeX0 - 0.12, tubeY, tubeZ], [tubeX0, tubeY, tubeZ], 0.065);
   pipe([tubeX1, tubeY, tubeZ], [tubeX1 + 0.14, tubeY, tubeZ], 0.065);
   pipe([tubeX0 - 0.1, tubeY + 0.1, tubeZ], [tubeX1 + 0.1, tubeY + 0.1, tubeZ], 0.012);
@@ -257,7 +262,7 @@ export async function buildStudioRoom(onProgress) {
     probe: new THREE.Vector3(0, 2, -D / 2),
     // 天気の演出に使うもの（weatherScene.js）
     weatherRig: {
-      lights: { sun, sky, hemi, lamp },
+      lights: { sun, sky, hemi, lamp, menuLamp },
       lampMaterial: tubeMat,
       landTexture: textures.land,
       horizonY: EYE,

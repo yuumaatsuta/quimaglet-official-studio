@@ -151,6 +151,26 @@ function updateShutter(dt) {
   setShutter(open, moving);
   if (!moving && open === 1) captureEnvironment();
 }
+// プラネタリウム：星を映し始めたらシャッターを閉め、やめたら元の開き具合に戻す
+let skyShut = false;
+let shutterBeforeSky = 1;
+let lampHold = false;
+function updatePlanetariumShutter() {
+  const on = !!room.planetarium?.on;
+  if (on !== skyShut) {
+    skyShut = on;
+    if (on) {
+      shutterBeforeSky = shutterTarget;
+      shutterTarget = 0;
+    } else {
+      shutterTarget = shutterBeforeSky;
+    }
+  }
+  // 閉まっている間も蛍光灯は消さない（シャッターが開き始めたら、ふだんの扱いに戻す）
+  if (on) lampHold = true;
+  else if (shutterOpen > 0) lampHold = false;
+  weather?.setLampHold(lampHold);
+}
 function toggleShutter() {
   shutterTarget = shutterTarget > 0.5 ? 0 : 1;
 }
@@ -523,7 +543,8 @@ renderer.setAnimationLoop(() => {
   // ロボットはズーム前の窓を基準に動かす（ズームで通り道が変わらないように）
   robotEye.set(win.cx, win.cy, win.cz + eyeDistance);
   room.update(t, { eye: robotEye, win, liveEye: eye });
-  // 星を映している間は、蛍光灯と回り込む光を落とす
+  // 星を映している間は、シャッターを閉めて部屋を暗くする（蛍光灯とメニューを照らす光は点けたまま）
+  updatePlanetariumShutter();
   const dim = room.planetarium?.dim ?? 0;
   weather?.setDim(dim);
   scene.environmentIntensity = envBase * shutterOpen * (1 - dim);

@@ -150,7 +150,7 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
 
   // ---------- 反映 ----------
 
-  const { sun, sky: skyLight, hemi, lamp } = rig.lights;
+  const { sun, sky: skyLight, hemi, lamp, menuLamp } = rig.lights;
   const lampBase = rig.lampMaterial.emissiveIntensity;
 
   // シャッターの開き具合（0 = 閉まって真っ暗）。日差しはシャッターの影で遮られるので、
@@ -159,8 +159,10 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
   // 蛍光灯：シャッターが動き出したら、チカチカしてから点く
   let now = 0;
   let lampStart = openness > 0 ? -10 : Infinity;
+  // hold: プラネタリウムでシャッターを閉めている間も、蛍光灯は点けたままにする
+  let hold = false;
   const lampPower = () => {
-    if (openness <= 0) return 0;
+    if (openness <= 0 && !hold) return 0;
     const s = now - lampStart;
     if (s > 0.9) return 1;
     return [0.05, 0.12, 0.3, 0.38, 0.55].some((on, i) => s > on && s < on + (i === 4 ? 1 : 0.05)) ? 1 : 0.08;
@@ -171,7 +173,9 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
 
   function apply() {
     const c = current;
-    const lampOn = lampPower() * (1 - dim);
+    const lampRaw = lampPower();
+    // 部屋へ落ちる光だけを星空の間は落とす。蛍光灯そのものとメニューを照らす光は残す
+    const lampOn = lampRaw * (1 - dim);
     // 日差しは基本的にシャッターの影で遮る。ただ細い部材は影の判定から漏れるので、
     // 閉じきっている間だけは光そのものを切る
     sun.intensity = c.sun * Math.min(1, openness * 25);
@@ -180,7 +184,8 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     skyLight.color.copy(c.skyColor);
     hemi.intensity = (c.hemi + flash * 1.5) * (0.02 + 0.98 * openness);
     lamp.intensity = c.lamp * 30 * lampOn;
-    rig.lampMaterial.emissiveIntensity = lampBase * 0.4 * openness + c.lamp * 2.5 * lampOn;
+    if (menuLamp) menuLamp.intensity = c.lamp * 16 * lampRaw;
+    rig.lampMaterial.emissiveIntensity = lampBase * 0.4 * openness + c.lamp * 2.5 * lampRaw;
     renderer.toneMappingExposure = c.exposure;
 
     skyUniforms.uTop.value.copy(c.skyTop);
@@ -299,8 +304,11 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     setDim(value) {
       dim = value;
     },
+    setLampHold(value) {
+      hold = value;
+    },
     setOpenness(value) {
-      if (openness <= 0 && value > 0) lampStart = now;
+      if (openness <= 0 && value > 0 && !hold) lampStart = now;
       openness = value;
       apply();
     },
