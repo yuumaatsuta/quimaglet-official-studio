@@ -88,6 +88,8 @@ export function createHotspots({ camera, root, hotspots, sections, tooltip, high
         // hoverScale: ホバーで少し大きくする（光らせても目立たない物。壁の落書きなど）
         const grow = s.obj.userData.hoverScale;
         if (grow) s.obj.scale.setScalar(1 + s.amount * grow);
+        // onHover: ホバーの度合い 0〜1 を毎フレーム受け取る（壁の落書きのグリッチなど）
+        s.obj.userData.onHover?.(s.amount);
         for (const m of s.materials) {
           m.mat.emissive.copy(m.base).lerp(accent, s.amount * 0.3);
           m.mat.emissiveIntensity = m.baseIntensity + s.amount * 0.6;

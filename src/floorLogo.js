@@ -1,13 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
-import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
-import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 
-// 左手前の床に置いた、立体の QUIMAGLET（白い文字の縁を LED が光る）。
-// 文字は public/models/logo-letters.glb（Inter Black を Blender で 1 文字ずつ立体にしたもの。
+// 左手前の床に置いた、立体の QUIMAGLET。
+// 文字は public/models/logo-letters.glb（Inter Black を Blender で 1 文字ずつ立体にし、縁を小さく丸めたもの。
 // 文字の高さ ≒ 0.5、底 y = 0、前面 +z、左右・前後の中心が原点）。
-// 読める並びのまま、1 文字ずつ向き・傾き・前後・大きさを少しずつ崩して、置いただけのような感じにする
+// 大きさはそろえ、手で 1 文字ずつ床に置いていったような、自然な不揃いさで並べる。
+// 質感は少し艶のある白の塗装。ところどころに小さなへこみがある
 
 const LOGO = {
   height: 0.21, // 文字の高さ（m）
@@ -17,21 +15,22 @@ const LOGO = {
   // 全体の向き。左手前の文字を画面の中央の目から斜めに見るので、単語ごと目の方へ向ける
   // （向けないと、文字の側面が見えて字間が空いたように見える）
   yaw: 0.5,
-  led: '#5cc8ff', // LED の色
-  body: '#f4f4f2', // 文字の白
+  color: '#f2f1ed', // 少し温かみのある白
+  gap: 0.035, // 標準の字間（m）
 };
 
-// 1 文字ずつの崩し（向き rad・前後 m・字間 m・大きさ・左右の傾き rad）
-const JITTER = [
-  { yaw: -0.22, dz: 0.03, gap: 0.0, scale: 1.08, lean: 0.0 }, // Q
-  { yaw: 0.12, dz: -0.08, gap: 0.03, scale: 0.94, lean: 0.0 }, // U
-  { yaw: 0.35, dz: 0.1, gap: 0.05, scale: 1.0, lean: 0.07 }, // I（少し傾いて立つ）
-  { yaw: -0.08, dz: -0.04, gap: 0.04, scale: 1.12, lean: 0.0 }, // M
-  { yaw: 0.28, dz: 0.12, gap: 0.0, scale: 0.96, lean: 0.0 }, // A
-  { yaw: -0.3, dz: -0.1, gap: 0.05, scale: 1.04, lean: 0.0 }, // G
-  { yaw: 0.18, dz: 0.06, gap: 0.02, scale: 0.9, lean: -0.05 }, // L
-  { yaw: -0.15, dz: -0.02, gap: 0.05, scale: 1.0, lean: 0.0 }, // E
-  { yaw: 0.4, dz: 0.14, gap: 0.03, scale: 1.06, lean: 0.0 }, // T
+// 1 文字ずつの置き方。手で置いたときに出る程度の、小さく不規則なずれ。
+//   yaw: 向き（rad）/ dz: 前後（m、正で手前）/ gap: 字間の増減（m）/ lean: 隣にもたれる傾き（rad、正で左へ）
+const PLACE = [
+  { yaw: -0.09, dz: 0.012, gap: 0.0, lean: 0 }, // Q
+  { yaw: 0.05, dz: -0.02, gap: -0.006, lean: 0 }, // U
+  { yaw: 0.16, dz: 0.015, gap: 0.008, lean: -0.13 }, // I（右の M にもたれかかる）
+  { yaw: -0.04, dz: -0.008, gap: 0.004, lean: 0 }, // M
+  { yaw: 0.11, dz: 0.03, gap: -0.004, lean: 0 }, // A
+  { yaw: -0.14, dz: -0.025, gap: 0.01, lean: 0 }, // G
+  { yaw: 0.03, dz: 0.005, gap: 0.0, lean: 0 }, // L
+  { yaw: -0.07, dz: 0.02, gap: 0.006, lean: 0 }, // E
+  { yaw: 0.22, dz: -0.035, gap: 0.014, lean: 0 }, // T（少し離れて、ななめに）
 ];
 
 export async function buildFloorLogo(manager) {
@@ -40,91 +39,78 @@ export async function buildFloorLogo(manager) {
   gltf.scene.traverse((o) => o.isMesh && letters.push(o));
   letters.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
+  const { normal, rough } = dentTextures(mulberry32(5));
+  const rand = mulberry32(9);
   const group = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({
-    color: LOGO.body,
-    roughness: 0.38,
-    metalness: 0,
-    // 暗い部屋でも白く見えるよう、ほんの少し自分で光らせる（縁の LED に照らされている感じ）
-    emissive: '#dff2ff',
-    emissiveIntensity: 0.16,
-  });
-  // LED：芯の細い線と、そのまわりのにじみ（太く薄い線を足し合わせる）
-  const core = new LineMaterial({ color: new THREE.Color(LOGO.led).lerp(new THREE.Color('#ffffff'), 0.3), linewidth: 2.2, toneMapped: false });
-  const halo = new LineMaterial({
-    color: LOGO.led,
-    linewidth: 9,
-    transparent: true,
-    opacity: 0.28,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    toneMapped: false,
-  });
-  const lineMaterials = [core, halo];
-  const setResolution = () => lineMaterials.forEach((m) => m.resolution.set(innerWidth, innerHeight));
-  setResolution();
-  addEventListener('resize', setResolution);
-
-  const glowTexture = floorGlowTexture();
   const s = LOGO.height / 0.495; // モデルの文字の高さ（I・M など）を LOGO.height に
-  const k = LOGO.height / 0.46; // 字間・前後のずれ（JITTER は高さ 0.46m のときの値）を大きさに合わせる
   let cursor = 0;
-  letters.forEach((src, i) => {
-    const j = JITTER[i] ?? JITTER[0];
-    const geo = src.geometry.clone();
-    geo.computeBoundingBox();
-    const w = (geo.boundingBox.max.x - geo.boundingBox.min.x) * s * j.scale;
-    const depth = (geo.boundingBox.max.z - geo.boundingBox.min.z) * s * j.scale;
-    // 向きを崩した文字の、正面から見た幅（回転前の幅で並べると、すき間が空いて単語が切れて見える）
-    const span = w * Math.abs(Math.cos(j.yaw)) + depth * Math.abs(Math.sin(j.yaw));
 
-    const letter = new THREE.Group();
-    const mesh = new THREE.Mesh(geo, body);
+  letters.forEach((src, i) => {
+    const p = PLACE[i] ?? PLACE[0];
+    const geo = src.geometry.clone();
+    addBoxUV(geo);
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    const w = (bb.max.x - bb.min.x) * s;
+    const depth = (bb.max.z - bb.min.z) * s;
+
+    // 文字ごとに、へこみの位置が違うよう模様をずらす
+    const n = normal.clone();
+    const r = rough.clone();
+    const offset = new THREE.Vector2(rand(), rand());
+    const rotation = rand() * Math.PI * 2;
+    for (const t of [n, r]) {
+      t.offset.copy(offset);
+      t.rotation = rotation;
+      t.needsUpdate = true;
+    }
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: LOGO.color,
+      roughness: 1, // roughnessMap（0.18〜0.3 ほど）をそのまま使う
+      roughnessMap: r,
+      metalness: 0,
+      normalMap: n,
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      // 塗装の艶。へこみは艶の層にも出す
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.12,
+      clearcoatNormalMap: n,
+      clearcoatNormalScale: new THREE.Vector2(0.55, 0.55),
+      // 夜の暗い部屋でも灰色に沈まず「白」と分かる程度に、ごくわずかに明るさを足す
+      emissive: '#ffffff',
+      emissiveIntensity: 0.07,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    // 角の辺だけ（曲面の細かい辺は拾わない）を LED にする
-    const edges = new LineSegmentsGeometry().fromEdgesGeometry(new THREE.EdgesGeometry(geo, 28));
-    const coreLine = new LineSegments2(edges, core);
-    const haloLine = new LineSegments2(edges, halo);
-    for (const l of [coreLine, haloLine]) l.userData.noPick = true;
-    letter.add(mesh, coreLine, haloLine);
-    letter.scale.setScalar(s * j.scale);
+    mesh.scale.setScalar(s);
 
-    // 傾けて立てるときは、底の片側の角を支点にする（床に沈まないよう、傾けた分だけ持ち上げる）
-    const half = (geo.boundingBox.max.x - geo.boundingBox.min.x) / 2;
-    const lift = Math.abs(Math.sin(j.lean)) * half * s * j.scale;
-    letter.rotation.set(0, LOGO.yaw + j.yaw, j.lean);
+    // もたれる文字は、倒れる側の底の角を支点に傾ける（床に沈まない・浮かない）
+    const pivot = new THREE.Group();
+    const half = ((bb.max.x - bb.min.x) / 2) * s;
+    const side = p.lean > 0 ? -1 : 1; // 正（左へ傾く）なら左下の角が支点
+    if (p.lean) {
+      pivot.position.x = side * half;
+      mesh.position.x = -side * half;
+      pivot.rotation.z = p.lean;
+    }
+    pivot.add(mesh);
 
+    const letter = new THREE.Group();
+    letter.add(pivot);
+    letter.rotation.y = LOGO.yaw + p.yaw;
+
+    // 向きを崩した文字の、正面から見た幅で並べる（回転前の幅だと、すき間が空いて単語が切れて見える）
+    const span = w * Math.abs(Math.cos(p.yaw)) + depth * Math.abs(Math.sin(p.yaw));
     const along = cursor + span / 2;
-    // 前後のずらし dz は、目に向かう向き（単語の正面）にかける。真後ろにずらすと、
-    // 斜めから見たときに文字が横へずれて、字間が空いたり重なったりして見える
-    const dz = j.dz * k;
+    // 前後のずれは目に向かう向き（単語の正面）にかける。真後ろにずらすと、斜めから見て横にずれて見える
     letter.position.set(
-      LOGO.x + Math.cos(LOGO.yaw) * along + Math.sin(LOGO.yaw) * dz,
-      lift,
-      LOGO.z - Math.sin(LOGO.yaw) * along + Math.cos(LOGO.yaw) * dz,
+      LOGO.x + Math.cos(LOGO.yaw) * along + Math.sin(LOGO.yaw) * p.dz,
+      0,
+      LOGO.z - Math.sin(LOGO.yaw) * along + Math.cos(LOGO.yaw) * p.dz,
     );
-    cursor += span + (0.02 + j.gap * 0.5) * k;
+    cursor += span + LOGO.gap + p.gap;
     group.add(letter);
-
-    // 床に落ちる LED の青い照り返し
-    const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(w * 1.9, 0.55 * k),
-      new THREE.MeshBasicMaterial({
-        map: glowTexture,
-        color: LOGO.led,
-        transparent: true,
-        opacity: 0.45,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-      }),
-    );
-    glow.rotation.set(-Math.PI / 2, 0, LOGO.yaw + j.yaw);
-    glow.position.set(letter.position.x, 0.003, letter.position.z);
-    glow.userData.noPick = true;
-    group.add(glow);
   });
 
   // 縦長の画面（スマホ）では窓が細く、左手前の文字が画面の外へはみ出す。
@@ -145,16 +131,100 @@ export async function buildFloorLogo(manager) {
   return group;
 }
 
-function floorGlowTexture() {
-  const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, 'rgba(255,255,255,0.9)');
-  g.addColorStop(0.45, 'rgba(255,255,255,0.35)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
+// 文字のモデルには UV がないので、面の向きごとに平らに投影して付ける（へこみの模様を貼るため）
+function addBoxUV(geo) {
+  const pos = geo.attributes.position;
+  const nor = geo.attributes.normal;
+  const uv = new Float32Array(pos.count * 2);
+  const k = 1 / 0.9; // 模様 1 枚が文字の高さのおよそ 2 倍
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ax = Math.abs(nor.getX(i));
+    const ay = Math.abs(nor.getY(i));
+    const az = Math.abs(nor.getZ(i));
+    let u;
+    let v;
+    if (az >= ax && az >= ay) [u, v] = [x, y];
+    else if (ax >= ay) [u, v] = [z + 0.37, y];
+    else [u, v] = [x, z + 0.61];
+    uv[i * 2] = u * k;
+    uv[i * 2 + 1] = v * k;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+// へこみの模様：法線マップ（小さな浅いくぼみがまばらに）と、艶のむら（くぼみの中や、うっすらした擦れで少し曇る）
+function dentTextures(rand) {
+  const N = 512;
+  const height = new Float32Array(N * N);
+  const dents = 9;
+  for (let d = 0; d < dents; d++) {
+    const cx = rand() * N;
+    const cy = rand() * N;
+    const r = 6 + rand() ** 2 * 26; // ほとんどは小さく、たまに大きめ
+    const depth = 0.4 + rand() * 0.6;
+    const sx = 0.6 + rand() * 0.8; // 少し楕円に
+    for (let y = Math.floor(cy - r * 2); y < cy + r * 2; y++) {
+      for (let x = Math.floor(cx - r * 2); x < cx + r * 2; x++) {
+        const dx = ((x - cx) / r) * sx;
+        const dy = (y - cy) / r;
+        const q = dx * dx + dy * dy;
+        if (q > 4) continue;
+        const xi = ((x % N) + N) % N;
+        const yi = ((y % N) + N) % N;
+        height[yi * N + xi] -= depth * Math.exp(-q * 1.6);
+      }
+    }
+  }
+  // ごく細かい凹凸（塗装の肌）
+  for (let i = 0; i < height.length; i++) height[i] += (rand() - 0.5) * 0.015;
+
+  const normalCanvas = document.createElement('canvas');
+  normalCanvas.width = normalCanvas.height = N;
+  const nctx = normalCanvas.getContext('2d');
+  const nimg = nctx.createImageData(N, N);
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = roughCanvas.height = N;
+  const rctx = roughCanvas.getContext('2d');
+  const rimg = rctx.createImageData(N, N);
+  const at = (x, y) => height[(((y % N) + N) % N) * N + (((x % N) + N) % N)];
+  const strength = 6;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+      const len = Math.hypot(dx, dy, 1);
+      const o = (y * N + x) * 4;
+      nimg.data[o] = ((-dx / len) * 0.5 + 0.5) * 255;
+      nimg.data[o + 1] = ((dy / len) * 0.5 + 0.5) * 255;
+      nimg.data[o + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      nimg.data[o + 3] = 255;
+      // 艶：基本 0.18、くぼみの中と、ゆるい擦れのむらで少し曇らせる
+      const smudge = 0.5 + 0.5 * Math.sin(x * 0.021 + Math.sin(y * 0.013) * 2) * Math.sin(y * 0.017 + 1.3);
+      const g = Math.min(1, 0.18 + Math.max(0, -at(x, y)) * 0.12 + smudge * 0.06) * 255;
+      rimg.data[o] = rimg.data[o + 1] = rimg.data[o + 2] = g;
+      rimg.data[o + 3] = 255;
+    }
+  }
+  nctx.putImageData(nimg, 0, 0);
+  rctx.putImageData(rimg, 0, 0);
+  const make = (canvas) => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 4;
+    return t;
+  };
+  return { normal: make(normalCanvas), rough: make(roughCanvas) };
+}
+
+function mulberry32(seed) {
+  return () => {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
