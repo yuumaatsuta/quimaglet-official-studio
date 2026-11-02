@@ -10,14 +10,17 @@ const NEWS = {
   delay: 10, // サイトを開いてから出てくるまで（秒）
   // 立ち位置：奥の壁の前、少し左。ここから壁の投影面へ光を当てる
   // 立ち位置：投影面の左横・少し手前。メニューに重ならないよう、投影面の中ほどの高さ
-  stand: { x: -1.75, z: 2.2, above: -0.25 }, // z は奥の壁からの距離、above は投影面の上端からの高さ（m）
+  stand: { x: -1.95, z: 2.3, above: -0.45 }, // z は奥の壁からの距離、above は投影面の上端からの高さ（m）
   width: 0.42, // ロボットの幅（m）。1 台目と同じ
   speed: 1.5, // 飛ぶ速さ（m/秒）
   accel: 1.2,
   // 投影面（奥の壁）。上端は落書きメニューの下端から gap 下
   gap: 0.12,
-  maxHeight: 1.05, // 投影の高さ（m）。横は 16:9
-  minBottom: 1.25, // 投影の下端をここより下げない（ソファに隠れる）
+  // 投影の大きさ。左右のブラウン管のタワーの間の壁いっぱいに、メニューの下からソファの上まで
+  maxHeight: 2.0, // 高さ（m）
+  maxWidth: 2.6, // 幅（m）。カードは 4:3
+  minBottom: 1.0, // 下端をここより下げない（ソファに隠れる）
+  aspect: 4 / 3,
   color: '#7fc4ff', // 投影の光の色
 };
 
@@ -51,7 +54,7 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
   // 壁の投影面。文字と画像は canvas に描く
   const card = drawCard();
   const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(16 / 9, 1),
+    new THREE.PlaneGeometry(NEWS.aspect, 1),
     new THREE.MeshBasicMaterial({
       map: card.texture,
       transparent: true,
@@ -108,8 +111,8 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
   function layout() {
     // 投影面：メニューの下、左右は部屋の中央
     const top = (menu.userData.bottom ?? 3.4) - NEWS.gap;
-    const h = Math.max(0.45, Math.min(NEWS.maxHeight, top - NEWS.minBottom));
-    const w = (h * 16) / 9;
+    const h = Math.max(0.6, Math.min(NEWS.maxHeight, NEWS.maxWidth / NEWS.aspect, top - NEWS.minBottom));
+    const w = h * NEWS.aspect;
     screen.scale.set(h, h, 1);
     screen.position.set(0, top - h / 2, wallZ + 0.008);
     corners[0].set(-w / 2, top, wallZ + 0.01);
@@ -216,7 +219,7 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
 // お知らせのカード：左上に NEWS、左にサムネイル、右にタイトルと本文
 function drawCard() {
   const W = 1280;
-  const H = 720;
+  const H = 960; // 4:3
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -254,8 +257,8 @@ function drawCard() {
     ctx.clearRect(0, 0, W, H);
     // 投影の地：壁に当たった光のむら（中央が明るく、端が暗い）
     const bg = ctx.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, W * 0.62);
-    bg.addColorStop(0, 'rgba(40, 110, 235, 0.62)');
-    bg.addColorStop(1, 'rgba(12, 40, 140, 0.5)');
+    bg.addColorStop(0, 'rgba(30, 90, 220, 0.72)');
+    bg.addColorStop(1, 'rgba(10, 32, 120, 0.62)');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -263,19 +266,19 @@ function drawCard() {
     ctx.shadowColor = 'rgba(120, 190, 255, 0.9)';
     ctx.shadowBlur = 14;
     // 左上の NEWS
-    ctx.font = font(900, 64);
+    ctx.font = font(900, 84);
     ctx.textBaseline = 'top';
-    ctx.fillText('NEWS', 64, 52);
-    ctx.font = font(600, 30);
-    ctx.globalAlpha = 0.8;
-    ctx.fillText(LATEST_NEWS.date ?? '', 290, 76);
+    ctx.fillText('NEWS', 64, 50);
+    ctx.font = font(600, 38);
+    ctx.globalAlpha = 0.85;
+    ctx.fillText(LATEST_NEWS.date ?? '', 360, 82);
     ctx.globalAlpha = 1;
 
     // サムネイル
     const tx = 64;
-    const ty = 168;
-    const tw = 500;
-    const th = 470;
+    const ty = 176;
+    const tw = 520;
+    const th = 390;
     ctx.shadowBlur = 0;
     if (image) {
       const s = Math.max(tw / image.width, th / image.height);
@@ -304,18 +307,19 @@ function drawCard() {
     ctx.strokeRect(tx, ty, tw, th);
 
     // タイトルと本文
-    const x = tx + tw + 52;
-    const maxW = W - x - 64;
-    ctx.fillStyle = '#f2f8ff';
+    // タイトルはサムネイルの右、本文はその下に横いっぱい（壁に映しても読める大きさ）
+    const x = tx + tw + 48;
+    ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(120, 190, 255, 0.9)';
     ctx.shadowBlur = 10;
-    ctx.font = font(800, 44);
-    let y = wrap(LATEST_NEWS.title ?? '', x, ty, maxW, 60, 3);
+    ctx.font = font(800, 56);
+    wrap(LATEST_NEWS.title ?? '', x, ty, W - x - 64, 74, 5);
+    const by = ty + th + 44;
     ctx.fillStyle = 'rgba(200, 230, 255, 0.6)';
-    ctx.fillRect(x, y + 6, 80, 3);
+    ctx.fillRect(tx, by, 120, 4);
     ctx.fillStyle = '#ffffff';
-    ctx.font = font(500, 30);
-    wrap(LATEST_NEWS.body ?? '', x, y + 34, maxW, 46, 6);
+    ctx.font = font(500, 42);
+    wrap(LATEST_NEWS.body ?? '', tx, by + 30, W - tx * 2, 62, 4);
 
     // 走査線と、縁のにじみ
     ctx.shadowBlur = 0;
