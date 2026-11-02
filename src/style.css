@@ -106,6 +106,20 @@ button {
   text-underline-offset: 25%;
 }
 
+/* 横長の画面では、メニューは奥の壁の落書き（src/wallMenu.js）。
+   この文字のメニューは見た目だけ隠し、キーボードで移ったときと読み上げには残す。
+   縦長（スマホ）は壁の右上が画面に入らないので、このまま出す */
+@media (min-aspect-ratio: 1/1) {
+  .nav:not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 .hero {
   bottom: max(16px, calc(20 * var(--u)), env(safe-area-inset-bottom));
   display: flex;

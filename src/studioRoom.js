@@ -5,6 +5,7 @@ import { CONFIG } from './config.js';
 import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { tagHotspot } from './hotspots.js';
+import { buildWallMenu } from './wallMenu.js';
 
 // 写真から起こしたコンクリート打ち放しのスタジオ（家具なし）。
 // 寸法は型枠（1800×900）の枚数から割り出したもの。単位は m。
@@ -129,6 +130,11 @@ export async function buildStudioRoom(onProgress) {
     tagHotspot(hotspots, f.id, item);
     focus.set(f.id, item);
   }
+
+  // 奥の壁の右上に、ペンキで落書きしたメニュー。押すとロボットがそのページを映す
+  const wallMenu = await buildWallMenu({ wallZ: -D });
+  group.add(wallMenu.group);
+  for (const [id, mesh] of wallMenu.items) tagHotspot(hotspots, id, mesh);
 
   // 奥の左右の角に積み上げたブラウン管のタワー。画面は部屋の手前の中央へ向ける
   const towerTarget = new THREE.Vector3(0, 0, -3.5);
@@ -751,6 +757,8 @@ function robotWander(model, item) {
     y: null, // 高さ。呼ばれた後に元の高さへなめらかに戻るよう、状態として持つ
     summon: null, // 呼ばれた先（画面上の位置 { sx, sy }。-1〜1）
     arrived: false,
+    beam: 0, // ホログラムの投影の強さ（main.js から）
+    pokeT: null, // 押されてからの時間（秒）。反応していないときは null
   };
 
   // 画面上の位置（窓の左右・上下の割合 -1〜1）を、目から見てその位置に重なる深さ z の点にする
@@ -851,8 +859,29 @@ function robotWander(model, item) {
       }
     }
 
-    // 見回しは機敏に、移動中の向き変えはゆったり
-    const rate = st.mode === 'look' ? 5 : 2.5;
+    // 押されたときの反応：ぴょんと跳ねて首を振り、こちらを見て、投影口がぱっと光る
+    let hop = 0;
+    let roll = 0;
+    let blink = 0;
+    if (st.pokeT !== null) {
+      st.pokeT += dt;
+      const p = st.pokeT;
+      hop = Math.abs(Math.sin(p * 7.5)) * 0.11 * Math.exp(-p * 2.6);
+      roll = Math.sin(p * 17) * 0.32 * Math.exp(-p * 3.2);
+      blink = Math.exp(-p * 3.5);
+      if (p < 1.1 && st.mode !== 'summon') {
+        st.yawTarget = 0;
+        st.pitchTarget = -0.18; // 少し見上げる（びっくり）
+      }
+      if (p > 2.5) st.pokeT = null;
+    }
+    const g = Math.max(st.beam, blink * 0.9);
+    glow.material.opacity = g;
+    glow.visible = g > 0.001;
+    light.intensity = Math.max(st.beam * 2, blink * 1.5);
+
+    // 見回しは機敏に、移動中の向き変えはゆったり（押された直後はすばやく振り向く）
+    const rate = st.mode === 'look' || (st.pokeT !== null && st.pokeT < 1.1) ? 6 : 2.5;
     st.yaw = damp(st.yaw, st.yawTarget, rate, dt);
     st.pitch = damp(st.pitch, st.pitchTarget, rate, dt);
 
@@ -863,9 +892,9 @@ function robotWander(model, item) {
     // 進むときに少し前のめり。映している間は揺れを小さくする
     const lean = Math.min(1, st.speed / WANDER.speed);
     const bob = st.mode === 'summon' && st.arrived ? 0.35 : 1;
-    body.position.set(st.x, st.y + (Math.sin(t * 0.9) * 0.06 + Math.sin(t * 0.37) * 0.03) * bob, z);
+    body.position.set(st.x, st.y + (Math.sin(t * 0.9) * 0.06 + Math.sin(t * 0.37) * 0.03) * bob + hop, z);
     body.rotation.set(0, st.yaw, 0);
-    head.rotation.set(st.pitch + Math.sin(t * 0.6) * 0.04 + lean * 0.12, 0, Math.sin(t * 0.73) * 0.04);
+    head.rotation.set(st.pitch + Math.sin(t * 0.6) * 0.04 + lean * 0.12, 0, Math.sin(t * 0.73) * 0.04 + roll);
   };
   body.userData.update(0);
 
@@ -891,12 +920,21 @@ function robotWander(model, item) {
     get arrived() {
       return st.arrived;
     },
-    // 投影の強さ 0〜1。投影口の光とロボットの下を照らす光
+    // 投影の強さ 0〜1。投影口の光とロボットの下を照らす光（次の update で反映）
     setBeam(v, flicker = 1) {
-      glow.material.opacity = v * flicker;
-      glow.visible = v > 0.001;
-      light.intensity = v * flicker * 2;
+      st.beam = v * flicker;
     },
+    // 押されたときの反応。歩いている途中なら立ち止まって、少しこちらを見てから、また進む
+    poke() {
+      st.pokeT = 0;
+      if (st.mode === 'move') {
+        st.mode = 'look';
+        st.timer = 2.2;
+        st.glanceTimer = 1.3; // 最初の 1.3 秒はこちらを見たまま
+        st.speed = 0;
+      }
+    },
+    object: body,
   };
   return body;
 }

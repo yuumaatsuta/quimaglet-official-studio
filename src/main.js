@@ -269,6 +269,43 @@ const panel = createPanel(SECTIONS, {
   onClose: () => !zoom.target && !holo.pending && hotspots.setEnabled(true),
 });
 
+// ---------- ロボットを押す ----------
+// クリック・タップすると、ぴょんと跳ねて首を振り、こちらを見る（studioRoom.js の poke）
+const robotRay = new THREE.Raycaster();
+const robotNdc = new THREE.Vector2();
+let robotDown = null;
+let robotPointer = null; // マウスの位置（ホバーでカーソルを変える）
+let robotHovered = false;
+
+function hitRobot(x, y) {
+  if (!room.robot) return false;
+  robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  robotRay.setFromCamera(robotNdc, camera);
+  return robotRay.intersectObject(room.robot.object, true).some((h) => h.object.isMesh && !h.object.userData.noPick);
+}
+
+addEventListener('pointerdown', (e) => {
+  robotDown = e.target.tagName === 'CANVAS' ? { x: e.clientX, y: e.clientY } : null;
+});
+addEventListener('pointerup', (e) => {
+  if (!robotDown) return;
+  const moved = Math.hypot(e.clientX - robotDown.x, e.clientY - robotDown.y);
+  robotDown = null;
+  if (moved <= 8 && hitRobot(e.clientX, e.clientY)) room.robot.poke();
+});
+addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse') robotPointer = { x: e.clientX, y: e.clientY, dirty: true };
+});
+
+function updateRobotHover() {
+  if (!robotPointer?.dirty) return;
+  robotPointer.dirty = false;
+  const over = !panel.isOpen && hitRobot(robotPointer.x, robotPointer.y);
+  if (over === robotHovered) return;
+  robotHovered = over;
+  document.body.style.cursor = over ? 'pointer' : '';
+}
+
 // ---------- ホログラム ----------
 // メニューを押すと、ロボットが今いる所から画面の中央上まで飛んできて、
 // 顔の下の投影口から光を当て、選んだページを半透明の青いパネル（ホログラム）として映す
@@ -406,6 +443,7 @@ renderer.setAnimationLoop(() => {
   room.update(t, { eye: robotEye, win, liveEye: eye });
   weather?.update(dt, t);
   hotspots.update(dt);
+  updateRobotHover();
   updateHologram(dt, t);
   renderer.render(scene, camera);
 });

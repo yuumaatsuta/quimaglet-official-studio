@@ -50,7 +50,7 @@ export function createHotspots({ camera, root, hotspots, sections, tooltip, high
     if (id === hovered) return;
     hovered = id;
     document.body.style.cursor = id ? 'pointer' : '';
-    tooltip.hidden = !id;
+    tooltip.hidden = !id || !!hotspots.get(id)?.userData.noTooltip;
     if (id) tooltip.textContent = sections[id]?.label ?? hotspots.get(id)?.userData.hotspotLabel ?? id;
   }
 
