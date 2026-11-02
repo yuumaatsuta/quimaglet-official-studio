@@ -97,8 +97,8 @@ function night(p) {
     skyHorizon: darken(p.skyHorizon, 0.13),
     cloudColor: darken(p.cloudColor, 0.12),
     land: darken(p.land, 0.16),
-    lamp: 1,
-    exposure: 1.1,
+    lamp: 0.6, // 夜の蛍光灯は少し落とす
+    exposure: 0.95,
     night: true, // 夜はマイクを下ろす（planetarium.js）
   };
 }
