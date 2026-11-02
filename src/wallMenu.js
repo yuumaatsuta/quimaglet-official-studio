@@ -10,7 +10,7 @@ const PAINT = {
   font: '"Permanent Marker", "Marker Felt", Impact, sans-serif', // index.html で Google Fonts を読む
   color: '#1c2a6e', // 紺のペンキ
   letterHeight: 0.44, // 文字の高さの基準（m）。語ごとの scale を掛ける
-  emissive: 0.06, // 暗くても形が分かる程度に、ほんの少しだけ自分で光らせる
+  emissive: 0, // ペンキは光らない（シャッターを閉めた暗い部屋では見えなくなる）。ホバーのホログラムだけが光る
 };
 
 // 置き場所：奥の壁の中央、蛍光灯の真下（夜にいちばん明るく照らされる所）。

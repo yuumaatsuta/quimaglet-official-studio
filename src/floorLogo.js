@@ -4,11 +4,11 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // 左手前の床に置いた、立体の QUIMAGLET。
 // 文字は public/models/logo-letters.glb（Inter Black を Blender で 1 文字ずつ立体にし、縁を小さく丸めたもの。
 // 文字の高さ ≒ 0.5、底 y = 0、前面 +z、左右・前後の中心が原点）。
-// 大きさはそろえ、手で 1 文字ずつ床に置いていったような、自然な不揃いさで並べる。
+// 大きさはそろえ、横は詰めて、前後と向きを大きく不揃いにして床に並べる。
 // 質感は少し艶のある白の塗装。ところどころに小さなへこみがある
 
 const LOGO = {
-  height: 0.21, // 文字の高さ（m）
+  height: 0.26, // 文字の高さ（m）
   // 並べる場所：左手前の床。窓（画面）の面 z = -5 のあたり。x は 1 文字目の左端
   x: -2.38,
   z: -4.85,
@@ -16,21 +16,21 @@ const LOGO = {
   // （向けないと、文字の側面が見えて字間が空いたように見える）
   yaw: 0.5,
   color: '#f2f1ed', // 少し温かみのある白
-  gap: 0.035, // 標準の字間（m）
+  gap: 0.0, // 標準の字間（m）。前後にずらすので、横は詰めて並べる
 };
 
-// 1 文字ずつの置き方。手で置いたときに出る程度の、小さく不規則なずれ。
-//   yaw: 向き（rad）/ dz: 前後（m、正で手前）/ gap: 字間の増減（m）/ lean: 隣にもたれる傾き（rad、正で左へ）
+// 1 文字ずつの置き方。横は詰め、前後と向きを大きく不揃いにして、床に無造作に並べた感じにする。
+//   yaw: 向き（rad）/ dz: 前後（m、正で手前）/ gap: 字間の増減（m）/ lean: 傾き（rad、正で左へ）
 const PLACE = [
-  { yaw: -0.09, dz: 0.012, gap: 0.0, lean: 0 }, // Q
-  { yaw: 0.05, dz: -0.02, gap: -0.006, lean: 0 }, // U
-  { yaw: 0.16, dz: 0.015, gap: 0.008, lean: -0.13 }, // I（右の M にもたれかかる）
-  { yaw: -0.04, dz: -0.008, gap: 0.004, lean: 0 }, // M
-  { yaw: 0.11, dz: 0.03, gap: -0.004, lean: 0 }, // A
-  { yaw: -0.14, dz: -0.025, gap: 0.01, lean: 0 }, // G
-  { yaw: 0.03, dz: 0.005, gap: 0.0, lean: 0 }, // L
-  { yaw: -0.07, dz: 0.02, gap: 0.006, lean: 0 }, // E
-  { yaw: 0.22, dz: -0.035, gap: 0.014, lean: 0 }, // T（少し離れて、ななめに）
+  { yaw: -0.22, dz: 0.05, gap: 0.0, lean: 0 }, // Q
+  { yaw: 0.16, dz: -0.1, gap: -0.01, lean: 0 }, // U
+  { yaw: 0.34, dz: 0.11, gap: 0.0, lean: 0 }, // I
+  { yaw: -0.12, dz: -0.05, gap: -0.012, lean: 0 }, // M
+  { yaw: 0.24, dz: 0.14, gap: 0.0, lean: 0 }, // A
+  { yaw: -0.3, dz: -0.12, gap: -0.008, lean: 0 }, // G
+  { yaw: 0.1, dz: 0.03, gap: -0.01, lean: 0 }, // L
+  { yaw: -0.2, dz: -0.08, gap: 0.0, lean: 0 }, // E
+  { yaw: 0.36, dz: 0.09, gap: 0.004, lean: 0 }, // T
 ];
 
 export async function buildFloorLogo(manager) {
@@ -76,9 +76,6 @@ export async function buildFloorLogo(manager) {
       clearcoatRoughness: 0.12,
       clearcoatNormalMap: n,
       clearcoatNormalScale: new THREE.Vector2(0.55, 0.55),
-      // 夜の暗い部屋でも灰色に沈まず「白」と分かる程度に、ごくわずかに明るさを足す
-      emissive: '#ffffff',
-      emissiveIntensity: 0.07,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
