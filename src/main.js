@@ -177,8 +177,8 @@ if (weather) {
     const instant = !shown;
     weather.set(params, { instant });
     shown = true;
-    // 夜は吊り下げの照明を下ろす
-    room.nightLights?.setNight(!!params.night);
+    // 夜はマイクを下ろす（触れると星空を映す）
+    room.planetarium?.setNight(!!params.night);
     // 行き先の天気の環境マップを先に撮り、光と一緒に少しずつ替える
     if (!instant) weather.previewTarget(() => captureEnvironment(true));
   };
@@ -353,13 +353,13 @@ function hitRobot(x, y) {
   return robotRay.intersectObject(room.robot.object, true).some((h) => h.object.isMesh && !h.object.userData.noPick);
 }
 
-// 夜の吊り下げ照明（押すと点く・消える）
-function hitNightLight(x, y) {
-  const lights = room.nightLights;
-  if (!lights?.active) return false;
+// 夜のマイク（触れると星空を映す・消す）
+function hitMic(x, y) {
+  const sky = room.planetarium;
+  if (!sky?.active) return false;
   robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
   robotRay.setFromCamera(robotNdc, camera);
-  return robotRay.intersectObjects(lights.hitTargets, true).length > 0;
+  return robotRay.intersectObjects(sky.hitTargets, true).length > 0;
 }
 
 addEventListener('pointerdown', (e) => {
@@ -371,7 +371,7 @@ addEventListener('pointerup', (e) => {
   robotDown = null;
   if (moved > 8) return;
   if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
-  else if (hitNightLight(e.clientX, e.clientY)) room.nightLights.toggle();
+  else if (hitMic(e.clientX, e.clientY)) room.planetarium.toggle();
 });
 addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') robotPointer = { x: e.clientX, y: e.clientY, dirty: true };
@@ -381,7 +381,7 @@ function updateRobotHover() {
   if (!robotPointer?.dirty) return;
   robotPointer.dirty = false;
   const over =
-    !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitNightLight(robotPointer.x, robotPointer.y));
+    !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitMic(robotPointer.x, robotPointer.y));
   if (over === robotHovered) return;
   robotHovered = over;
   document.body.style.cursor = over ? 'pointer' : '';
@@ -523,6 +523,10 @@ renderer.setAnimationLoop(() => {
   // ロボットはズーム前の窓を基準に動かす（ズームで通り道が変わらないように）
   robotEye.set(win.cx, win.cy, win.cz + eyeDistance);
   room.update(t, { eye: robotEye, win, liveEye: eye });
+  // 星を映している間は、蛍光灯と回り込む光を落とす
+  const dim = room.planetarium?.dim ?? 0;
+  weather?.setDim(dim);
+  scene.environmentIntensity = envBase * shutterOpen * (1 - dim);
   weather?.update(dt, t);
   hotspots.update(dt);
   updateRobotHover();
@@ -541,11 +545,11 @@ requestAnimationFrame(() => {
 });
 // 真っ暗な部屋を少し見せてから、シャッターを上げる。
 // ?shutter=0.4 のように開き具合を固定することもできる（見た目の確認用）
-// ?lamps のように付けると、夜の吊り下げ照明が下りたら点ける（見た目の確認用）
-if (new URLSearchParams(location.search).has('lamps')) {
+// ?stars のように付けると、夜のマイクが下りたら星空を映す（見た目の確認用）
+if (new URLSearchParams(location.search).has('stars')) {
   const wait = setInterval(() => {
-    if (!room.nightLights?.active) return;
-    room.nightLights.toggle();
+    if (!room.planetarium?.active) return;
+    room.planetarium.toggle(true);
     clearInterval(wait);
   }, 300);
 }

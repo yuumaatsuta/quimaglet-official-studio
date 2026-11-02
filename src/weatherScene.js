@@ -166,9 +166,12 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     return [0.05, 0.12, 0.3, 0.38, 0.55].some((on, i) => s > on && s < on + (i === 4 ? 1 : 0.05)) ? 1 : 0.08;
   };
 
+  // 星空を映している間に蛍光灯を落とす割合（planetarium.js）
+  let dim = 0;
+
   function apply() {
     const c = current;
-    const lampOn = lampPower();
+    const lampOn = lampPower() * (1 - dim);
     // 日差しは基本的にシャッターの影で遮る。ただ細い部材は影の判定から漏れるので、
     // 閉じきっている間だけは光そのものを切る
     sun.intensity = c.sun * Math.min(1, openness * 25);
@@ -292,6 +295,9 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
       for (const k of NUM_KEYS) current[k] = saved[k];
       for (const k of COLOR_KEYS) current[k].copy(saved[k]);
       apply();
+    },
+    setDim(value) {
+      dim = value;
     },
     setOpenness(value) {
       if (openness <= 0 && value > 0) lampStart = now;

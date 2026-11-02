@@ -99,7 +99,7 @@ function night(p) {
     land: darken(p.land, 0.16),
     lamp: 1,
     exposure: 1.1,
-    night: true, // 夜の吊り下げ照明を下ろす（nightLights.js）
+    night: true, // 夜はマイクを下ろす（planetarium.js）
   };
 }
 
