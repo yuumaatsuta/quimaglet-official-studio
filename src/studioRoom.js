@@ -7,6 +7,7 @@ import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
 import { buildFloorLogo } from './floorLogo.js';
+import { buildNewsProjector } from './newsProjector.js';
 
 // 写真から起こしたコンクリート打ち放しのスタジオ（家具なし）。
 // 寸法は型枠（1800×900）の枚数から割り出したもの。単位は m。
@@ -138,6 +139,10 @@ export async function buildStudioRoom(onProgress) {
   group.add(wallMenu.group);
   for (const [id, mesh] of wallMenu.items) tagHotspot(hotspots, id, mesh);
 
+  // 2 台目のロボット：少しすると左から飛んできて、メニューの下に最新のお知らせを映す
+  const newsProjector = await buildNewsProjector({ manager, wallZ: -D, menu: wallMenu.group });
+  group.add(newsProjector.group);
+
   // 左手前の床に置いた、立体の QUIMAGLET（白い文字の縁が LED で光る）
   group.add(floorLogo);
 
@@ -252,6 +257,8 @@ export async function buildStudioRoom(onProgress) {
     focus,
     // メニューで呼ぶとホログラムを映すロボット（robotWander）。いなければ null
     robot: furniture.find((f) => f.userData.robot)?.userData.robot ?? null,
+    // お知らせを映す 2 台目のロボット（newsProjector.js）
+    newsProjector,
     hasLights: true,
     // view: { eye, win, liveEye }（main.js）。画面の端を知りたい物（ロボット）に渡す。
     // eye はズームや見回しに左右されない目、liveEye は実際の目（画面上の位置に合わせたいとき）
@@ -260,6 +267,8 @@ export async function buildStudioRoom(onProgress) {
       updateCrtScreens(t);
       for (const item of furniture) item.userData.update?.(t, view);
       floorLogo.userData.update(t, view);
+      wallMenu.group.userData.update(t, view);
+      newsProjector.group.userData.update(t, view);
     },
   };
 }

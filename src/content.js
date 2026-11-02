@@ -42,3 +42,12 @@ export const SECTIONS = {
     `,
   },
 };
+
+// 2 台目のロボットが奥の壁（メニューの下）に映す、最新のお知らせ（newsProjector.js）。
+// image は public/ に置いた画像のパス（例: 'images/news-latest.jpg'）。null なら仮のサムネイルを描く
+export const LATEST_NEWS = {
+  date: '2026.11.01',
+  title: 'QUIMAGLET OFFICIAL STUDIO のウェブサイトを公開しました',
+  body: 'スタジオの中をそのまま歩くように見て回れる、新しいウェブサイトを公開しました。壁のメニューを押すと、ロボットが各ページを映してくれます。ここに最新のお知らせの本文が入ります。',
+  image: null,
+};

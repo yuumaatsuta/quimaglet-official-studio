@@ -17,6 +17,13 @@ const PAINT = {
 // 左右のブラウン管タワーの間に、語ごとにばらばらに散らす。x は語の左端、y は語の中心の高さ（m）
 //   scale: 大きさ / rot: 傾き（rad）/ skew: 斜体の強さ / jitter: 文字ごとの崩れ（0〜1）
 //   deco: 添え書き（underline / star / ring / arrow / none）/ drips: 垂れの多さ
+// 画面に収める設定（横に長い画面で、壁の上のほうが見切れるとき）
+const FIT = {
+  top: 0.8, // 窓の上端から何割の高さまでに収めるか（上はヘッダーと、呼ばれたロボットの場所）
+  lowest: 2.95, // メニューの下端をここ（m）より下げない（その下に News の投影が入る）
+  minHeight: 1.15, // 画面がとても横長でも、メニューの高さはこれ（m）以上を保つ
+};
+
 const WORDS = [
   { id: 'about', x: -1.6, y: 4.72, scale: 1.18, rot: -0.16, skew: -0.12, jitter: 0.6, deco: 'underline', drips: 1.2 },
   { id: 'works', x: 0.3, y: 4.9, scale: 0.92, rot: 0.13, skew: 0.18, jitter: 1.0, deco: 'star', drips: 0.6 },
@@ -68,6 +75,43 @@ export async function buildWallMenu({ wallZ, seed = 23 }) {
     group.add(obj);
     items.set(word.id, obj);
   }
+
+  // 横に長い画面ほど窓（画面）の縦が狭くなり、壁の上のほうが画面の外に出てメニューが見切れる。
+  // 画面の形が変わるたびに、目から見えている壁の範囲を出し、はみ出すときは全体を下げ、
+  // 下げすぎてブラウン管のタワーに重なるようなら縮める
+  group.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  for (const obj of items.values()) box.expandByObject(obj.children[1], true); // 当たり板（文字の部分）
+  box.max.y += 0.12; // 星などの添え書きの分
+  box.min.y -= 0.18; // 垂れの分
+  const center = box.getCenter(new THREE.Vector3());
+  let lastKey = null;
+  group.userData.update = (t, view) => {
+    const win = view?.win;
+    const eye = view?.eye;
+    if (!win || !eye) return;
+    const key = `${win.halfW.toFixed(4)},${win.halfH.toFixed(4)}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    // 窓の上端（ヘッダーの分だけ内側）を、目から奥の壁まで延ばした高さ
+    const k = (eye.z - wallZ) / (eye.z - win.cz);
+    const top = eye.y + (win.cy + win.halfH * FIT.top - eye.y) * k;
+    const height = box.max.y - box.min.y;
+    let scale = 1;
+    let shift = 0;
+    if (box.max.y > top) {
+      const floor = Math.min(FIT.lowest, top - FIT.minHeight); // ここより下には下げない
+      scale = Math.min(1, (top - floor) / height);
+      // 縮めた後の上端を top に合わせる
+      shift = top - (center.y + (box.max.y - center.y) * scale);
+    }
+    // 中心を支点に縮める（壁からは離さないので z はそのまま）
+    group.scale.set(scale, scale, 1);
+    group.position.set(center.x * (1 - scale), center.y * (1 - scale) + shift, 0);
+    // 縮めて下げた後の下端（News の投影がこの下に入る。newsProjector.js）
+    group.userData.bottom = box.min.y * scale + center.y * (1 - scale) + shift;
+  };
+  group.userData.bottom = box.min.y;
 
   return { group, items };
 }

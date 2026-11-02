@@ -19,12 +19,21 @@ const LOGO = {
   gap: 0.0, // 標準の字間（m）。前後にずらすので、横は詰めて並べる
 };
 
+// 縦長の画面（スマホ）での置き方。窓が細く、横長と同じ置き方だと中央のブラウン管に重なるので、
+// もっと手前の床で、画面の左端から右奥へ斜めに流し（前後で文字が重なる）、左に寄せる
+const PORTRAIT = {
+  front: 0.45, // 窓の面から目までの何割ぶん手前に置くか（手前ほど画面の下に見える）
+  yaw: 0.4, // 単語の流れる向き（大きいほど奥へ向かう）
+  left: -0.9, // 単語の左端の画面上の位置（-1 = 左端）
+  right: 0.55, // 単語の右端がここ（画面の左右 -1〜1）を越えない大きさに縮める
+};
+
 // 1 文字ずつの置き方。横は詰め、前後と向きを大きく不揃いにして、床に無造作に並べた感じにする。
 //   yaw: 向き（rad）/ dz: 前後（m、正で手前）/ gap: 字間の増減（m）/ lean: 傾き（rad、正で左へ）
 const PLACE = [
   { yaw: -0.22, dz: 0.05, gap: 0.0, lean: 0 }, // Q
-  { yaw: 0.16, dz: -0.1, gap: -0.01, lean: 0 }, // U
-  { yaw: 0.34, dz: 0.11, gap: 0.0, lean: 0 }, // I
+  { yaw: 0.16, dz: -0.1, gap: 0.02, lean: 0 }, // U
+  { yaw: 0.0, dz: 0.03, gap: 0.03, lean: 0 }, // I（まっすぐ正面を向ける。細いので両隣と重ならないよう少し空ける）
   { yaw: -0.12, dz: -0.05, gap: -0.012, lean: 0 }, // M
   { yaw: 0.24, dz: 0.14, gap: 0.0, lean: 0 }, // A
   { yaw: -0.3, dz: -0.12, gap: -0.008, lean: 0 }, // G
@@ -42,6 +51,8 @@ export async function buildFloorLogo(manager) {
   const { normal, rough } = dentTextures(mulberry32(5));
   const rand = mulberry32(9);
   const group = new THREE.Group();
+  const word = new THREE.Group(); // 単語 1 つ分。画面の形に合わせて、まとめて置き直す
+  group.add(word);
   const s = LOGO.height / 0.495; // モデルの文字の高さ（I・M など）を LOGO.height に
   let cursor = 0;
 
@@ -95,34 +106,76 @@ export async function buildFloorLogo(manager) {
 
     const letter = new THREE.Group();
     letter.add(pivot);
-    letter.rotation.y = LOGO.yaw + p.yaw;
+    letter.rotation.y = p.yaw;
 
+    // 単語の中での位置（単語の向きに沿って x、正面へ z）。全体の位置・向き・大きさは下の update で決める
     // 向きを崩した文字の、正面から見た幅で並べる（回転前の幅だと、すき間が空いて単語が切れて見える）
     const span = w * Math.abs(Math.cos(p.yaw)) + depth * Math.abs(Math.sin(p.yaw));
-    const along = cursor + span / 2;
-    // 前後のずれは目に向かう向き（単語の正面）にかける。真後ろにずらすと、斜めから見て横にずれて見える
-    letter.position.set(
-      LOGO.x + Math.cos(LOGO.yaw) * along + Math.sin(LOGO.yaw) * p.dz,
-      0,
-      LOGO.z - Math.sin(LOGO.yaw) * along + Math.cos(LOGO.yaw) * p.dz,
-    );
+    // 前後のずれは単語の正面（目に向かう向き）にかける。真後ろにずらすと、斜めから見て横にずれて見える
+    letter.position.set(cursor + span / 2, 0, p.dz);
     cursor += span + LOGO.gap + p.gap;
-    group.add(letter);
+    word.add(letter);
   });
+  const length = cursor;
 
-  // 縦長の画面（スマホ）では窓が細く、左手前の文字が画面の外へはみ出す。
-  // 単語の左端を画面の左端の少し内側に合わせ、それでも入らなければ縮める（横長の画面ではそのまま）
-  const wordWidth = cursor * Math.cos(LOGO.yaw); // 左右の幅（m）
-  const anchor = new THREE.Vector3(LOGO.x, 0, LOGO.z);
-  let lastHalfW = null;
+  // 画面の形に合わせて置き直す（横長はそのまま、縦長は手前・斜め・左寄せ）
+  let lastKey = null;
   group.userData.update = (t, view) => {
     const win = view?.win;
-    if (!win || win.halfW === lastHalfW) return;
-    lastHalfW = win.halfW;
-    const left = Math.max(LOGO.x, win.cx - win.halfW * 0.9);
-    const fit = Math.min(1, (win.cx + win.halfW * 0.9 - left) / wordWidth);
-    group.scale.setScalar(fit);
-    group.position.set(left, 0, anchor.z).sub(anchor.clone().multiplyScalar(fit));
+    const eye = view?.eye;
+    if (!win || !eye) return;
+    const key = `${win.halfW.toFixed(4)},${win.halfH.toFixed(4)}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    if (win.halfW >= win.halfH) {
+      // 横長：いつもの場所。ただし横に長い画面では窓の縦が狭く、手前の床が画面の下に切れるので、
+      // 文字の足元が画面の下端より上に、左端の Q が画面の左端より内側に見えるまで奥へずらす
+      const toWinL = (z) => (eye.z - win.cz) / (eye.z - z);
+      const p = new THREE.Vector3();
+      const fits = (dz) => {
+        const z = LOGO.z - dz;
+        const x = Math.max(LOGO.x, eye.x + (win.cx - 0.9 * win.halfW - eye.x) / toWinL(z));
+        word.position.set(x, 0, z);
+        word.rotation.y = LOGO.yaw;
+        word.scale.setScalar(1);
+        word.updateMatrix();
+        for (const letter of word.children) {
+          p.copy(letter.position).applyMatrix4(word.matrix);
+          const ndcY = (eye.y + (p.y - eye.y) * toWinL(p.z) - win.cy) / win.halfH;
+          if (ndcY < -0.8) return false;
+        }
+        return true;
+      };
+      if (!fits(0)) {
+        let lo = 0;
+        let hi = 4;
+        for (let k = 0; k < 20; k++) {
+          const mid = (lo + hi) / 2;
+          if (fits(mid)) hi = mid;
+          else lo = mid;
+        }
+        fits(hi);
+      }
+      return;
+    }
+    // 窓の面から目の距離に対する比で、ある深さ z の点が画面のどこに見えるかを出す
+    const toWin = (z) => (eye.z - win.cz) / (eye.z - z);
+    const ndcX = (x, z) => (eye.x + (x - eye.x) * toWin(z) - win.cx) / win.halfW;
+    const z0 = win.cz + (eye.z - win.cz) * PORTRAIT.front;
+    const x0 = eye.x + (win.cx + PORTRAIT.left * win.halfW - eye.x) / toWin(z0);
+    const dir = { x: Math.cos(PORTRAIT.yaw), z: -Math.sin(PORTRAIT.yaw) };
+    // 右端が PORTRAIT.right に収まる大きさを二分探索で探す
+    let lo = 0.1;
+    let hi = 1;
+    for (let k = 0; k < 24; k++) {
+      const mid = (lo + hi) / 2;
+      const end = ndcX(x0 + dir.x * length * mid, z0 + dir.z * length * mid);
+      if (end <= PORTRAIT.right) lo = mid;
+      else hi = mid;
+    }
+    word.position.set(x0, 0, z0);
+    word.rotation.y = PORTRAIT.yaw;
+    word.scale.setScalar(lo);
   };
 
   return group;

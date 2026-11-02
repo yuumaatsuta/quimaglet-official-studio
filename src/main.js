@@ -445,6 +445,8 @@ renderer.setAnimationLoop(() => {
   hotspots.update(dt);
   updateRobotHover();
   updateHologram(dt, t);
+  // ほかのメニューを開いている（呼んでいる・ズームしている）間は、お知らせのロボットを画面の外へはけさせる
+  room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target);
   renderer.render(scene, camera);
 });
 

@@ -340,6 +340,11 @@ button {
   background: radial-gradient(ellipse at 50% 40%, rgba(10, 30, 80, 0.12), rgba(0, 5, 20, 0.4));
 }
 
+/* 光はホログラムが映っている間だけ（閉じた後に描き残しが出ないように） */
+body:not(.is-holo) .holo-beam {
+  visibility: hidden;
+}
+
 .holo-beam {
   position: fixed;
   inset: 0;
