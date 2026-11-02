@@ -45,19 +45,83 @@ const camera = new THREE.PerspectiveCamera(50, 1, view.near, view.far);
 let envBase = room.hasLights ? 0.3 : 1.0;
 const cubeTarget = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
 const cubeCamera = new THREE.CubeCamera(0.05, view.far, cubeTarget);
-let envMap = null;
-function captureEnvironment() {
+const envMixer = createEnvMixer();
+// blend: 今の環境マップから、天気の移り変わりと同じ速さでなめらかに替える
+// （光だけ先に変わって、あとから映り込みがいきなり替わると、暗くなるのが 2 段階に見える）
+function captureEnvironment(blend = false) {
   if (!room.probe) return;
   const open = shutterOpen;
   setShutter(1, false);
   cubeCamera.position.copy(room.probe);
   cubeCamera.update(renderer, scene);
   setShutter(open, false);
-  const next = pmrem.fromCubemap(cubeTarget.texture);
-  scene.environment = next.texture;
-  envMap?.dispose();
-  envMap = next;
+  envMixer.capture(cubeTarget.texture, blend);
   envBase = room.hasLights ? 0.5 : 1.0;
+}
+
+// 環境マップを少しずつ切り替える。撮った周囲の画像（キューブ）を「元」と「行き先」で混ぜ、
+// 混ぜた画像から部屋に当てる環境マップ（shown、ずっと同じ 1 枚）を作り直す
+function createEnvMixer() {
+  const SIZE = 256;
+  const makeCube = () => new THREE.WebGLCubeRenderTarget(SIZE, { type: THREE.HalfFloatType });
+  const fromCube = makeCube();
+  const toCube = makeCube();
+  const mixCube = makeCube(); // いま部屋に当てている画像の元
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { a: { value: null }, b: { value: null }, k: { value: 0 } },
+    vertexShader: `varying vec3 vDir;
+void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform samplerCube a;
+uniform samplerCube b;
+uniform float k;
+varying vec3 vDir;
+void main() { vec3 d = normalize(vDir); gl_FragColor = mix(textureCube(a, d), textureCube(b, d), k); }`,
+    side: THREE.BackSide,
+    depthTest: false,
+    depthWrite: false,
+  });
+  // 目のまわりを包む箱に、2 つの画像を方向ごとに混ぜて描き、それをキューブカメラで撮る
+  const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), mat);
+  const mixScene = new THREE.Scene().add(box);
+  const mixCamera = new THREE.CubeCamera(0.1, 10, mixCube);
+  mixScene.add(mixCamera);
+  let shown = null;
+  let k = 1;
+
+  const draw = (a, b, amount, target) => {
+    mat.uniforms.a.value = a;
+    mat.uniforms.b.value = b;
+    mat.uniforms.k.value = amount;
+    mixCamera.renderTarget = target;
+    mixCamera.update(renderer, mixScene);
+  };
+  const apply = () => {
+    shown = pmrem.fromCubemap(mixCube.texture, shown);
+    scene.environment = shown.texture;
+  };
+
+  return {
+    capture(cubeTexture, blend) {
+      draw(cubeTexture, cubeTexture, 1, toCube);
+      if (!shown || !blend) {
+        draw(toCube.texture, toCube.texture, 1, mixCube);
+        apply();
+        k = 1;
+        return;
+      }
+      // いま見えている画像（切り替えの途中なら混ざった画像）から始める
+      draw(mixCube.texture, mixCube.texture, 0, fromCube);
+      k = 0;
+    },
+    update(dt) {
+      if (k >= 1) return;
+      // weatherScene.js の移り変わりと同じ速さ
+      k += (1 - k) * (1 - Math.exp(-dt * 1.8)) + dt * 0.01;
+      if (k > 0.995) k = 1;
+      draw(fromCube.texture, toCube.texture, k, mixCube);
+      apply();
+    },
+  };
 }
 
 // ---------- シャッター ----------
@@ -100,7 +164,7 @@ if (room.weatherRig) {
     renderer,
     rig: room.weatherRig,
     initial: weatherParams('clear', true),
-    onSettled: captureEnvironment,
+    onSettled: () => captureEnvironment(true),
   });
 }
 setShutter(shutterOpen, false);
@@ -110,8 +174,13 @@ if (weather) {
   // 最初の 1 回はすぐに切り替え、以降はなめらかに移り変わらせる
   let shown = false;
   const setWeather = (params) => {
-    weather.set(params, { instant: !shown });
+    const instant = !shown;
+    weather.set(params, { instant });
     shown = true;
+    // 夜は吊り下げの照明を下ろす
+    room.nightLights?.setNight(!!params.night);
+    // 行き先の天気の環境マップを先に撮り、光と一緒に少しずつ替える
+    if (!instant) weather.previewTarget(() => captureEnvironment(true));
   };
 
   const weatherPanel = CONFIG.weatherPanel
@@ -284,6 +353,15 @@ function hitRobot(x, y) {
   return robotRay.intersectObject(room.robot.object, true).some((h) => h.object.isMesh && !h.object.userData.noPick);
 }
 
+// 夜の吊り下げ照明（押すと点く・消える）
+function hitNightLight(x, y) {
+  const lights = room.nightLights;
+  if (!lights?.active) return false;
+  robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  robotRay.setFromCamera(robotNdc, camera);
+  return robotRay.intersectObjects(lights.hitTargets, true).length > 0;
+}
+
 addEventListener('pointerdown', (e) => {
   robotDown = e.target.tagName === 'CANVAS' ? { x: e.clientX, y: e.clientY } : null;
 });
@@ -291,7 +369,9 @@ addEventListener('pointerup', (e) => {
   if (!robotDown) return;
   const moved = Math.hypot(e.clientX - robotDown.x, e.clientY - robotDown.y);
   robotDown = null;
-  if (moved <= 8 && hitRobot(e.clientX, e.clientY)) room.robot.poke();
+  if (moved > 8) return;
+  if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
+  else if (hitNightLight(e.clientX, e.clientY)) room.nightLights.toggle();
 });
 addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') robotPointer = { x: e.clientX, y: e.clientY, dirty: true };
@@ -300,7 +380,8 @@ addEventListener('pointermove', (e) => {
 function updateRobotHover() {
   if (!robotPointer?.dirty) return;
   robotPointer.dirty = false;
-  const over = !panel.isOpen && hitRobot(robotPointer.x, robotPointer.y);
+  const over =
+    !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitNightLight(robotPointer.x, robotPointer.y));
   if (over === robotHovered) return;
   robotHovered = over;
   document.body.style.cursor = over ? 'pointer' : '';
@@ -438,6 +519,7 @@ renderer.setAnimationLoop(() => {
   updateWindowCamera(camera, eye, w);
 
   updateShutter(dt);
+  envMixer.update(dt);
   // ロボットはズーム前の窓を基準に動かす（ズームで通り道が変わらないように）
   robotEye.set(win.cx, win.cy, win.cz + eyeDistance);
   room.update(t, { eye: robotEye, win, liveEye: eye });
@@ -459,6 +541,14 @@ requestAnimationFrame(() => {
 });
 // 真っ暗な部屋を少し見せてから、シャッターを上げる。
 // ?shutter=0.4 のように開き具合を固定することもできる（見た目の確認用）
+// ?lamps のように付けると、夜の吊り下げ照明が下りたら点ける（見た目の確認用）
+if (new URLSearchParams(location.search).has('lamps')) {
+  const wait = setInterval(() => {
+    if (!room.nightLights?.active) return;
+    room.nightLights.toggle();
+    clearInterval(wait);
+  }, 300);
+}
 const fixedShutter = new URLSearchParams(location.search).get('shutter');
 if (room.shutter && fixedShutter !== null) {
   shutterProgress = shutterTarget = THREE.MathUtils.clamp(Number(fixedShutter) || 0, 0, 1);

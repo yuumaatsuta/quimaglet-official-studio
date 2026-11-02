@@ -280,6 +280,19 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
       }
       pending = true;
     },
+    // 移り変わる先の天気をいったん部屋に当てて fn を呼び、元に戻す（行き先の環境マップを先に撮るため）
+    previewTarget(fn) {
+      const saved = {};
+      for (const k of NUM_KEYS) saved[k] = current[k];
+      for (const k of COLOR_KEYS) saved[k] = current[k].clone();
+      for (const k of NUM_KEYS) current[k] = target[k];
+      for (const k of COLOR_KEYS) current[k].copy(target[k]);
+      apply();
+      fn();
+      for (const k of NUM_KEYS) current[k] = saved[k];
+      for (const k of COLOR_KEYS) current[k].copy(saved[k]);
+      apply();
+    },
     setOpenness(value) {
       if (openness <= 0 && value > 0) lampStart = now;
       openness = value;

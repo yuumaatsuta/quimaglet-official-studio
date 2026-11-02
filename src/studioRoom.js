@@ -8,6 +8,7 @@ import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
 import { buildFloorLogo } from './floorLogo.js';
 import { buildNewsProjector } from './newsProjector.js';
+import { buildNightLights } from './nightLights.js';
 
 // 写真から起こしたコンクリート打ち放しのスタジオ（家具なし）。
 // 寸法は型枠（1800×900）の枚数から割り出したもの。単位は m。
@@ -143,7 +144,17 @@ export async function buildStudioRoom(onProgress) {
   const newsProjector = await buildNewsProjector({ manager, wallZ: -D, menu: wallMenu.group });
   group.add(newsProjector.group);
 
-  // 左手前の床に置いた、立体の QUIMAGLET（白い文字の縁が LED で光る）
+  // 夜になると画面の手前に下りてくる、吊り下げの丸い照明（押すと点く）
+  const nightLights = buildNightLights({
+    ceilingY: H,
+    halfWidth: W / 2,
+    backZ: -D,
+    keepClear: [wallMenu.group, newsProjector.group],
+    root: group,
+  });
+  group.add(nightLights.group);
+
+  // 左手前の床に置いた、立体の QUIMAGLET
   group.add(floorLogo);
 
   // 奥の左右の角に積み上げたブラウン管のタワー。画面は部屋の手前の中央へ向ける
@@ -259,6 +270,8 @@ export async function buildStudioRoom(onProgress) {
     robot: furniture.find((f) => f.userData.robot)?.userData.robot ?? null,
     // お知らせを映す 2 台目のロボット（newsProjector.js）
     newsProjector,
+    // 夜の吊り下げ照明（nightLights.js）
+    nightLights,
     hasLights: true,
     // view: { eye, win, liveEye }（main.js）。画面の端を知りたい物（ロボット）に渡す。
     // eye はズームや見回しに左右されない目、liveEye は実際の目（画面上の位置に合わせたいとき）
@@ -269,6 +282,7 @@ export async function buildStudioRoom(onProgress) {
       floorLogo.userData.update(t, view);
       wallMenu.group.userData.update(t, view);
       newsProjector.group.userData.update(t, view);
+      nightLights.group.userData.update(t, view);
     },
   };
 }

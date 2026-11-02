@@ -5,7 +5,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // 文字は public/models/logo-letters.glb（Inter Black を Blender で 1 文字ずつ立体にし、縁を小さく丸めたもの。
 // 文字の高さ ≒ 0.5、底 y = 0、前面 +z、左右・前後の中心が原点）。
 // 大きさはそろえ、横は詰めて、前後と向きを大きく不揃いにして床に並べる。
-// 質感は少し艶のある白の塗装。ところどころに小さなへこみがある
+// 質感は少し艶のある白の塗装。ところどころに小さなへこみがある。
+// 部屋になじむよう、少しくすんだ白にし、足元に埃のくすみ、角に小さな塗装の剥げ、
+// 床との接地の柔らかい影、艶のある床へのぼんやりした映り込みを足す
 
 const LOGO = {
   height: 0.26, // 文字の高さ（m）
@@ -15,7 +17,7 @@ const LOGO = {
   // 全体の向き。左手前の文字を画面の中央の目から斜めに見るので、単語ごと目の方へ向ける
   // （向けないと、文字の側面が見えて字間が空いたように見える）
   yaw: 0.5,
-  color: '#f2f1ed', // 少し温かみのある白
+  color: '#e3dfd5', // 少しくすんだ、温かみのある白（純白だと部屋から浮く）
   gap: 0.0, // 標準の字間（m）。前後にずらすので、横は詰めて並べる
 };
 
@@ -30,6 +32,14 @@ const PORTRAIT = {
 
 // 1 文字ずつの置き方。横は詰め、前後と向きを大きく不揃いにして、床に無造作に並べた感じにする。
 //   yaw: 向き（rad）/ dz: 前後（m、正で手前）/ gap: 字間の増減（m）/ lean: 傾き（rad、正で左へ）
+// 床への映り込み：文字の下のほうだけが、艶のある床にぼんやり映る
+const MIRROR = {
+  layer: 5, // 映り込みの描画で使うレイヤー（文字と照明だけを描く）
+  size: 256, // 映り込みの画像の解像度（低めにしてぼかす）
+  strength: 0.09, // 映り込みの濃さ
+  fade: 0.1, // 文字の足元からこの高さ（m）までが映る
+};
+
 const PLACE = [
   { yaw: -0.22, dz: 0.05, gap: 0.0, lean: 0 }, // Q
   { yaw: 0.16, dz: -0.1, gap: 0.02, lean: 0 }, // U
@@ -49,6 +59,7 @@ export async function buildFloorLogo(manager) {
   letters.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
   const { normal, rough } = dentTextures(mulberry32(5));
+  const mirrorUniform = { value: 0 }; // 1 のとき映り込み用に描く（足元だけを残す）
   const rand = mulberry32(9);
   const group = new THREE.Group();
   const word = new THREE.Group(); // 単語 1 つ分。画面の形に合わせて、まとめて置き直す
@@ -82,13 +93,17 @@ export async function buildFloorLogo(manager) {
       metalness: 0,
       normalMap: n,
       normalScale: new THREE.Vector2(0.4, 0.4),
-      // 塗装の艶。へこみは艶の層にも出す
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.12,
+      // 塗装の艶（控えめ）。へこみは艶の層にも出す
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.2,
       clearcoatNormalMap: n,
       clearcoatNormalScale: new THREE.Vector2(0.4, 0.4),
+      envMapIntensity: 0.8,
     });
+    weather(mat, mirrorUniform);
     const mesh = new THREE.Mesh(geo, mat);
+    mesh.layers.enable(MIRROR.layer);
+    mesh.add(contactShadow(geo, bb));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.scale.setScalar(s);
@@ -117,6 +132,7 @@ export async function buildFloorLogo(manager) {
     word.add(letter);
   });
   const length = cursor;
+  word.add(floorReflection(length, mirrorUniform, word));
 
   // 画面の形に合わせて置き直す（横長はそのまま、縦長は手前・斜め・左寄せ）
   let lastKey = null;
@@ -179,6 +195,318 @@ export async function buildFloorLogo(manager) {
   };
 
   return group;
+}
+
+// 使い込んだ塗装：足元に埃のくすみ、角（面取りの丸み）に小さな剥げ。
+// どちらも文字のモデルの座標（高さ 0〜0.5）で決めるので、大きさを変えても同じ見え方になる
+function weather(mat, mirrorUniform) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uMirror = mirrorUniform;
+    shader.uniforms.uFade = { value: MIRROR.fade };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vObj;
+varying vec3 vObjN;
+varying float vWorldY;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+vObj = position;
+vObjN = normal;
+vWorldY = (modelMatrix * vec4(transformed, 1.0)).y;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vObj;
+varying vec3 vObjN;
+varying float vWorldY;
+uniform float uMirror;
+uniform float uFade;
+float wHash(vec3 p) { return fract(sin(dot(p, vec3(17.1, 113.7, 271.3))) * 43758.5453); }
+float wNoise(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(wHash(i), wHash(i + vec3(1, 0, 0)), f.x), mix(wHash(i + vec3(0, 1, 0)), wHash(i + vec3(1, 1, 0)), f.x), f.y),
+    mix(mix(wHash(i + vec3(0, 0, 1)), wHash(i + vec3(1, 0, 1)), f.x), mix(wHash(i + vec3(0, 1, 1)), wHash(i + vec3(1, 1, 1)), f.x), f.y),
+    f.z);
+}
+float wDirt;
+float wChip;`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+{
+  float n = wNoise(vObj * 38.0) * 0.6 + wNoise(vObj * 9.0) * 0.4;
+  // 足元のくすみ：床から 6cm ほど、まだらに。床に触れるところはもう少し濃く
+  wDirt = (1.0 - smoothstep(0.0, 0.13, vObj.y)) * smoothstep(0.25, 0.75, n);
+  wDirt += (1.0 - smoothstep(0.0, 0.03, vObj.y)) * 0.5;
+  wDirt = clamp(wDirt, 0.0, 1.0);
+  // 角の剥げ：正面・背面と側面のあいだの丸み（法線が斜め）にだけ、ごく小さく
+  float az = abs(vObjN.z);
+  float edge = smoothstep(0.12, 0.3, az) * (1.0 - smoothstep(0.85, 0.97, az));
+  wChip = edge * smoothstep(0.66, 0.74, wNoise(vObj * 70.0 + 3.1));
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.72, 0.68, 0.6), wDirt * 0.55);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.35, 0.33), wChip * 0.85);
+}`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+roughnessFactor = mix(roughnessFactor, 0.75, max(wDirt * 0.7, wChip));`,
+      )
+      .replace(
+        '#include <lights_physical_fragment>',
+        `#include <lights_physical_fragment>
+material.clearcoat *= 1.0 - max(wDirt * 0.8, wChip);`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `#include <opaque_fragment>
+if (uMirror > 0.5) {
+  // 映り込み用：足元ほど濃く、上は消える（艶のある床では足元だけがはっきり映る）
+  float f = 1.0 - clamp(vWorldY / uFade, 0.0, 1.0);
+  f *= f;
+  gl_FragColor = vec4(gl_FragColor.rgb * f, f);
+}`,
+      );
+  };
+}
+
+// 接地の影：文字の底の形を上から見た、柔らかい暗がり（直射日光の影とは別に、床との境目に溜まる）。
+// 文字の中（モデルの座標）に置くので、向き・大きさに合わせて付いてくる
+function contactShadow(geo, bb) {
+  const m = 0.14; // 底の形のまわりに広げる余白（モデルの座標）
+  const ppu = 220; // 1 単位あたりの画素数
+  const x0 = bb.min.x - m;
+  const z0 = bb.min.z - m;
+  const w = bb.max.x - bb.min.x + m * 2;
+  const d = bb.max.z - bb.min.z + m * 2;
+  const W = Math.ceil(w * ppu);
+  const H = Math.ceil(d * ppu);
+  const foot = new Float32Array(W * H);
+
+  // 床に触れている三角形（3 頂点とも低い）を上から見て塗る
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  const tri = (idx ? idx.count : pos.count) / 3;
+  const v = (k) => (idx ? idx.getX(k) : k);
+  for (let t = 0; t < tri; t++) {
+    const a = v(t * 3);
+    const b = v(t * 3 + 1);
+    const c = v(t * 3 + 2);
+    if (pos.getY(a) > 0.02 || pos.getY(b) > 0.02 || pos.getY(c) > 0.02) continue;
+    fillTri(
+      foot,
+      W,
+      H,
+      [(pos.getX(a) - x0) * ppu, (pos.getZ(a) - z0) * ppu],
+      [(pos.getX(b) - x0) * ppu, (pos.getZ(b) - z0) * ppu],
+      [(pos.getX(c) - x0) * ppu, (pos.getZ(c) - z0) * ppu],
+    );
+  }
+  // 境目に溜まる濃い暗がり（細いぼかし）と、少し広がる薄い暗がり（太いぼかし）を重ねる
+  const near = blur(foot, W, H, 3);
+  const far = blur(foot, W, H, 14);
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    img.data[i * 4 + 3] = Math.min(1, near[i] * 1.2 + far[i] * 2.2) * 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, d),
+    new THREE.MeshBasicMaterial({
+      map: tex,
+      color: '#000000',
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.9,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+    }),
+  );
+  // 板の +y（画像の上）が奥（-z）に向くよう寝かせる。画像の上の行 = z0
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.set(x0 + w / 2, 0.004, z0 + d / 2);
+  plane.renderOrder = 1;
+  plane.userData.noPick = true;
+  return plane;
+}
+
+function fillTri(out, W, H, p, q, r) {
+  const minX = Math.max(0, Math.floor(Math.min(p[0], q[0], r[0])));
+  const maxX = Math.min(W - 1, Math.ceil(Math.max(p[0], q[0], r[0])));
+  const minY = Math.max(0, Math.floor(Math.min(p[1], q[1], r[1])));
+  const maxY = Math.min(H - 1, Math.ceil(Math.max(p[1], q[1], r[1])));
+  const e = (a, b, x, y) => (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
+  const area = e(p, q, r[0], r[1]);
+  if (Math.abs(area) < 1e-9) return;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const w0 = e(q, r, x + 0.5, y + 0.5) / area;
+      const w1 = e(r, p, x + 0.5, y + 0.5) / area;
+      const w2 = e(p, q, x + 0.5, y + 0.5) / area;
+      if (w0 >= 0 && w1 >= 0 && w2 >= 0) out[y * W + x] = 1;
+    }
+  }
+}
+
+// 箱ぼかし 3 回（ガウスぼかしの近似）
+function blur(src, W, H, r) {
+  const a = Float32Array.from(src);
+  const b = new Float32Array(W * H);
+  for (let pass = 0; pass < 3; pass++) {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let s = 0;
+        for (let k = -r; k <= r; k++) s += a[y * W + Math.min(W - 1, Math.max(0, x + k))];
+        b[y * W + x] = s / (2 * r + 1);
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let s = 0;
+        for (let k = -r; k <= r; k++) s += b[Math.min(H - 1, Math.max(0, y + k)) * W + x];
+        a[y * W + x] = s / (2 * r + 1);
+      }
+    }
+  }
+  return a;
+}
+
+// 床への映り込み。床に寝かせた板に、床で鏡映しにした目から文字（足元だけ）を描いた画像を貼る。
+// 文字と照明だけを描くので軽い。画像は低い解像度で描き、さらにぼかして、艶のある木の床らしくする
+function floorReflection(length, mirrorUniform, word) {
+  const rt = new THREE.WebGLRenderTarget(MIRROR.size, MIRROR.size, { type: THREE.HalfFloatType });
+  const virtual = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
+  virtual.layers.set(MIRROR.layer);
+  const textureMatrix = new THREE.Matrix4();
+  const bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
+  const w = length + 0.5;
+  const zBack = -0.35;
+  const zFront = 0.7;
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, zFront - zBack),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        tMirror: { value: rt.texture },
+        textureMatrix: { value: textureMatrix },
+        strength: { value: MIRROR.strength },
+        texel: { value: 1 / MIRROR.size },
+      },
+      vertexShader: `
+uniform mat4 textureMatrix;
+varying vec4 vCoord;
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  vCoord = textureMatrix * modelMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`,
+      fragmentShader: `
+uniform sampler2D tMirror;
+uniform float strength;
+uniform float texel;
+varying vec4 vCoord;
+varying vec2 vUv;
+void main() {
+  vec2 uv = vCoord.xy / vCoord.w;
+  vec4 c = vec4(0.0);
+  float wsum = 0.0;
+  for (int y = -2; y <= 2; y++) {
+    for (int x = -2; x <= 2; x++) {
+      float k = exp(-float(x * x + y * y) / 3.0);
+      c += texture2D(tMirror, uv + vec2(float(x), float(y)) * texel * 1.5) * k;
+      wsum += k;
+    }
+  }
+  c /= wsum;
+  // 板の縁で消す
+  float edge = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x) * smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.85, vUv.y);
+  gl_FragColor = c * strength * edge;
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`,
+      transparent: true,
+      premultipliedAlpha: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+    }),
+  );
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.set(length / 2, 0.005, (zBack + zFront) / 2);
+  plane.renderOrder = 2;
+  plane.userData.noPick = true;
+
+  const eye = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  const corner = new THREE.Vector3();
+  const corners = [
+    [-w / 2, zBack],
+    [w / 2, zBack],
+    [-w / 2, zFront],
+    [w / 2, zFront],
+  ];
+  const clear = new THREE.Color();
+  let frame = 0;
+  plane.onBeforeRender = (renderer, scene, camera) => {
+    // 照明も映り込みの描画に入れる（照明が増えたときのため、ときどき数え直す）
+    if (frame++ % 120 === 0) scene.traverse((o) => o.isLight && o.layers.enable(MIRROR.layer));
+    // 床（y = 0）で鏡映しにした目から、板の中心を見る。板全体が入る画角にする
+    camera.getWorldPosition(eye);
+    virtual.position.set(eye.x, -eye.y, eye.z);
+    word.localToWorld(center.set(length / 2, 0, (zBack + zFront) / 2));
+    virtual.up.set(0, 1, 0);
+    virtual.lookAt(center);
+    virtual.updateMatrixWorld();
+    let tx = 0;
+    let ty = 0;
+    for (const [x, z] of corners) {
+      word.localToWorld(corner.set(length / 2 + x, 0, z));
+      corner.applyMatrix4(virtual.matrixWorldInverse);
+      const dz = Math.max(0.01, -corner.z);
+      tx = Math.max(tx, Math.abs(corner.x / dz));
+      ty = Math.max(ty, Math.abs(corner.y / dz));
+    }
+    const hy = ty * 1.15 + 0.02;
+    const hx = tx * 1.15 + 0.02;
+    virtual.fov = THREE.MathUtils.radToDeg(2 * Math.atan(hy));
+    virtual.aspect = hx / hy;
+    virtual.updateProjectionMatrix();
+    textureMatrix.copy(bias).multiply(virtual.projectionMatrix).multiply(virtual.matrixWorldInverse);
+
+    const prevTarget = renderer.getRenderTarget();
+    const prevShadow = renderer.shadowMap.autoUpdate;
+    const prevAlpha = renderer.getClearAlpha();
+    renderer.getClearColor(clear);
+    const prevBg = scene.background;
+    scene.background = null;
+    renderer.shadowMap.autoUpdate = false;
+    mirrorUniform.value = 1;
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(scene, virtual);
+    mirrorUniform.value = 0;
+    renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(clear, prevAlpha);
+    renderer.shadowMap.autoUpdate = prevShadow;
+    scene.background = prevBg;
+  };
+  return plane;
 }
 
 // 文字のモデルには UV がないので、面の向きごとに平らに投影して付ける（へこみの模様を貼るため）
