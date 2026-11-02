@@ -1,9 +1,12 @@
 import { KINDS, LOCATION } from './weather.js';
 
-// 試作用：天気を手で切り替えるボタン。本番では CONFIG.weatherPanel を false にして消す
+// 試作用：天気を手で切り替えるボタン。本番では CONFIG.weatherPanel を false にして消す。
+// 普段は隠しておき、画面右上の歯車（#settings-toggle）で開く
 export function createWeatherPanel({ onLive, onManual, onShutter }) {
   const root = document.createElement('div');
   root.className = 'weather-panel';
+  root.id = 'weather-panel';
+  root.hidden = true;
   root.innerHTML = `
     <p class="weather-status" aria-live="polite"></p>
     <div class="weather-row">
@@ -51,6 +54,28 @@ export function createWeatherPanel({ onLive, onManual, onShutter }) {
   });
 
   render();
+
+  // 歯車で開閉。パネルの外を押すか Esc で閉じる
+  const toggle = document.getElementById('settings-toggle');
+  function setOpen(open) {
+    root.hidden = !open;
+    toggle?.setAttribute('aria-expanded', String(open));
+  }
+  if (toggle) {
+    toggle.hidden = false;
+    toggle.addEventListener('click', () => setOpen(root.hidden));
+    addEventListener('pointerdown', (e) => {
+      if (!root.hidden && !root.contains(e.target) && !toggle.contains(e.target)) setOpen(false);
+    });
+    addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !root.hidden) {
+        setOpen(false);
+        toggle.focus();
+      }
+    });
+  } else {
+    setOpen(true);
+  }
 
   return {
     get live() {

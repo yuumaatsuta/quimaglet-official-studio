@@ -31,23 +31,27 @@
         <button type="button" data-open="news">News</button>
         <button type="button" data-open="contact">Contact</button>
       </nav>
+      <!-- 天気パネルを開く（src/weatherPanel.js。パネルを使わない設定なら hidden のまま） -->
+      <button type="button" id="settings-toggle" class="settings-toggle" aria-label="天気とシャッターの設定" aria-expanded="false" aria-controls="weather-panel" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      </button>
     </header>
 
+    <!-- 文字のロゴは、左手前の床の立体の文字（src/floorLogo.js）。見出しは読み上げ用に残す -->
     <section class="hero">
-      <h1>QUIMAGLET</h1>
-      <div class="hero-copy">
-        <p>
-          ようこそ、スタジオへ。IMMERSE を押すと、<span class="for-desktop">マウスの動きで</span><span class="for-touch">端末を傾けて</span>部屋を見回せます。
-        </p>
-        <button type="button" id="immerse" class="immerse" aria-pressed="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" />
-            <path d="M2.5 12s3.5-5.5 9.5-5.5 9.5 5.5 9.5 5.5-3.5 5.5-9.5 5.5S2.5 12 2.5 12z" />
-            <circle cx="12" cy="12" r="2.6" />
-          </svg>
-          <span>IMMERSE</span>
-        </button>
-      </div>
+      <h1 class="sr-only">QUIMAGLET OFFICIAL STUDIO</h1>
+      <p class="sr-only" id="immerse-desc">IMMERSE を押すと、マウスの動きや端末の傾きで部屋を見回せます。</p>
+      <button type="button" id="immerse" class="immerse" aria-pressed="false" aria-describedby="immerse-desc">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" />
+          <path d="M2.5 12s3.5-5.5 9.5-5.5 9.5 5.5 9.5 5.5-3.5 5.5-9.5 5.5S2.5 12 2.5 12z" />
+          <circle cx="12" cy="12" r="2.6" />
+        </svg>
+        <span>IMMERSE</span>
+      </button>
     </section>
 
     <button type="button" id="zoom-back" class="zoom-back" hidden>← 戻る</button>

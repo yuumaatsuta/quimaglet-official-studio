@@ -6,6 +6,7 @@ import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
+import { buildFloorLogo } from './floorLogo.js';
 
 // 写真から起こしたコンクリート打ち放しのスタジオ（家具なし）。
 // 寸法は型枠（1800×900）の枚数から割り出したもの。単位は m。
@@ -37,10 +38,11 @@ export async function buildStudioRoom(onProgress) {
 
   const manager = new THREE.LoadingManager();
   manager.onProgress = (_, loaded, total) => onProgress?.(loaded / total);
-  const [textures, furniture, crtTemplates] = await Promise.all([
+  const [textures, furniture, crtTemplates, floorLogo] = await Promise.all([
     loadTextures(manager),
     loadFurniture(manager),
     loadCrtTemplates(new GLTFLoader(manager)),
+    buildFloorLogo(manager),
   ]);
   startCrtVideo(CONFIG.crtVideo);
   const group = new THREE.Group();
@@ -135,6 +137,9 @@ export async function buildStudioRoom(onProgress) {
   const wallMenu = await buildWallMenu({ wallZ: -D });
   group.add(wallMenu.group);
   for (const [id, mesh] of wallMenu.items) tagHotspot(hotspots, id, mesh);
+
+  // 左手前の床に置いた、立体の QUIMAGLET（白い文字の縁が LED で光る）
+  group.add(floorLogo);
 
   // 奥の左右の角に積み上げたブラウン管のタワー。画面は部屋の手前の中央へ向ける
   const towerTarget = new THREE.Vector3(0, 0, -3.5);
@@ -254,6 +259,7 @@ export async function buildStudioRoom(onProgress) {
       shutter.update(t);
       updateCrtScreens(t);
       for (const item of furniture) item.userData.update?.(t, view);
+      floorLogo.userData.update(t, view);
     },
   };
 }
@@ -760,6 +766,7 @@ function robotWander(model, item) {
     arrived: false,
     beam: 0, // ホログラムの投影の強さ（main.js から）
     pokeT: null, // 押されてからの時間（秒）。反応していないときは null
+    curious: false, // 押された後の、きょろきょろ見回している間
   };
 
   // 画面上の位置（窓の左右・上下の割合 -1〜1）を、目から見てその位置に重なる深さ z の点にする
@@ -848,19 +855,26 @@ function robotWander(model, item) {
       // 立ち止まって見回す：左右・こちら・上下へ、間をおいて視線を移す
       st.speed = 0;
       st.glanceTimer -= dt;
+      // 押された後（curious）は、せわしなく広く見回す
       if (st.glanceTimer <= 0) {
-        st.glanceTimer = rand(0.6, 1.4);
-        st.yawTarget = rand(-1.3, 1.3);
-        st.pitchTarget = rand(-0.25, 0.2);
+        st.glanceTimer = st.curious ? rand(0.3, 0.75) : rand(0.6, 1.4);
+        const range = st.curious ? 1.6 : 1.3;
+        // 前と同じ側ばかり見ないよう、ときどき反対側へ大きく振る
+        let yaw = rand(-range, range);
+        if (st.curious && Math.sign(yaw) === Math.sign(st.yawTarget) && Math.random() < 0.6) yaw = -yaw;
+        st.yawTarget = yaw;
+        st.pitchTarget = st.curious ? rand(-0.35, 0.3) : rand(-0.25, 0.2);
       }
       st.timer -= dt;
       if (st.timer <= 0) {
         st.stopAt = null; // 残りは止まらずに抜ける
         st.mode = 'move';
+        st.curious = false;
       }
     }
 
-    // 押されたときの反応：ぴょんと跳ねて首を振り、こちらを見て、投影口がぱっと光る
+    // 押されたときの反応：ぴょんと跳ねて首を振り、投影口がぱっと光る。跳ねている間はこちらを見上げ、
+    // 着地したら、きょろきょろと周りを見回す（look モードの curious）
     let hop = 0;
     let roll = 0;
     let blink = 0;
@@ -870,7 +884,7 @@ function robotWander(model, item) {
       hop = Math.abs(Math.sin(p * 7.5)) * 0.11 * Math.exp(-p * 2.6);
       roll = Math.sin(p * 17) * 0.32 * Math.exp(-p * 3.2);
       blink = Math.exp(-p * 3.5);
-      if (p < 1.1 && st.mode !== 'summon') {
+      if (p < 0.55 && st.mode !== 'summon') {
         st.yawTarget = 0;
         st.pitchTarget = -0.18; // 少し見上げる（びっくり）
       }
@@ -882,7 +896,7 @@ function robotWander(model, item) {
     light.intensity = Math.max(st.beam * 2, blink * 1.5);
 
     // 見回しは機敏に、移動中の向き変えはゆったり（押された直後はすばやく振り向く）
-    const rate = st.mode === 'look' || (st.pokeT !== null && st.pokeT < 1.1) ? 6 : 2.5;
+    const rate = st.curious ? 7 : st.mode === 'look' || (st.pokeT !== null && st.pokeT < 0.55) ? 6 : 2.5;
     st.yaw = damp(st.yaw, st.yawTarget, rate, dt);
     st.pitch = damp(st.pitch, st.pitchTarget, rate, dt);
 
@@ -906,6 +920,7 @@ function robotWander(model, item) {
     summon(sx, sy) {
       st.summon = { sx, sy };
       st.arrived = false;
+      st.curious = false;
       st.mode = 'summon';
     },
     // 呼び出しを解いて、近い方の画面の端から出て行かせる（そのまま普段の往復に戻る）
@@ -926,12 +941,14 @@ function robotWander(model, item) {
       st.beam = v * flicker;
     },
     // 押されたときの反応。歩いている途中なら立ち止まって、少しこちらを見てから、また進む
+    // 押されたときの反応。その場で跳ねてから、しばらく周りを見回し、また進む（映している間は跳ねるだけ）
     poke() {
       st.pokeT = 0;
-      if (st.mode === 'move') {
+      if (st.mode === 'move' || st.mode === 'look') {
         st.mode = 'look';
-        st.timer = 2.2;
-        st.glanceTimer = 1.3; // 最初の 1.3 秒はこちらを見たまま
+        st.timer = 3.8;
+        st.glanceTimer = 0.55; // 跳ね終わるまではこちらを見上げたまま
+        st.curious = true;
         st.speed = 0;
       }
     },
