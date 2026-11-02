@@ -31,7 +31,7 @@ export function createHotspots({ camera, root, hotspots, sections, tooltip, high
         materials.push({ mat, base: mat.emissive.clone(), baseIntensity: mat.emissiveIntensity });
       }
     });
-    states.set(id, { amount: 0, materials });
+    states.set(id, { amount: 0, materials, obj });
   }
 
   let hovered = null;
@@ -85,6 +85,9 @@ export function createHotspots({ camera, root, hotspots, sections, tooltip, high
       const k = 1 - Math.exp(-dt * 10);
       for (const [id, s] of states) {
         s.amount += ((id === hovered ? 1 : 0) - s.amount) * k;
+        // hoverScale: ホバーで少し大きくする（光らせても目立たない物。壁の落書きなど）
+        const grow = s.obj.userData.hoverScale;
+        if (grow) s.obj.scale.setScalar(1 + s.amount * grow);
         for (const m of s.materials) {
           m.mat.emissive.copy(m.base).lerp(accent, s.amount * 0.3);
           m.mat.emissiveIntensity = m.baseIntensity + s.amount * 0.6;

@@ -3,41 +3,37 @@ import { SECTIONS } from './content.js';
 
 // 奥の壁にペンキで落書きしたメニュー（About / Works / News / Contact）。
 // 1 語ずつ板にして壁にぴったり貼り、hotspot（押すとそのページ）にする。
-// 文字は canvas に描く：吹き付けのにじみ・塗りムラ・飛沫・垂れで、手で塗った感じを出す
+// 文字は canvas に描く：1 文字ずつ傾き・高さ・大きさを揺らし、吹き付けのにじみ・塗りムラ・飛沫・垂れ、
+// 語ごとの添え書き（下線・星・丸囲み・矢印）で、別々の人が別々の時に描いたような不揃いさを出す
 
 const PAINT = {
   font: '"Permanent Marker", "Marker Felt", Impact, sans-serif', // index.html で Google Fonts を読む
-  color: '#ff3d8b', // ペンキの色（蛍光ピンク。昼のコンクリートでも夜でも目立つ）
-  letterHeight: 0.38, // 文字の高さ（m）
-  lineGap: 0.4, // 行の間隔（m）
+  color: '#1c2a6e', // 紺のペンキ
+  letterHeight: 0.44, // 文字の高さの基準（m）。語ごとの scale を掛ける
+  emissive: 0.06, // 暗くても形が分かる程度に、ほんの少しだけ自分で光らせる
 };
 
-// 置き場所：奥の壁の右上（右奥のブラウン管タワーより上）。x, y は 1 行目の左端・中心の高さ
-const LAYOUT = {
-  x: 0.45,
-  y: 5.1,
-  // 行ごとの、左右のずれ（m）・傾き（rad）・大きさ。手書きらしく少しずつ不揃いにする
-  lines: [
-    { dx: 0.0, rot: 0.06, scale: 1.0 },
-    { dx: 0.32, rot: -0.04, scale: 1.08 },
-    { dx: 0.1, rot: 0.03, scale: 0.95 },
-    { dx: 0.22, rot: -0.07, scale: 1.02 },
-  ],
-};
+// 置き場所：奥の壁の中央、蛍光灯の真下（夜にいちばん明るく照らされる所）。
+// 左右のブラウン管タワーの間に、語ごとにばらばらに散らす。x は語の左端、y は語の中心の高さ（m）
+//   scale: 大きさ / rot: 傾き（rad）/ skew: 斜体の強さ / jitter: 文字ごとの崩れ（0〜1）
+//   deco: 添え書き（underline / star / ring / arrow / none）/ drips: 垂れの多さ
+const WORDS = [
+  { id: 'about', x: -1.6, y: 4.72, scale: 1.18, rot: -0.16, skew: -0.12, jitter: 0.6, deco: 'underline', drips: 1.2 },
+  { id: 'works', x: 0.3, y: 4.9, scale: 0.92, rot: 0.13, skew: 0.18, jitter: 1.0, deco: 'star', drips: 0.6 },
+  { id: 'news', x: -1.05, y: 4.02, scale: 0.85, rot: 0.2, skew: 0.05, jitter: 0.8, deco: 'ring', drips: 0.9 },
+  { id: 'contact', x: 0.02, y: 3.7, scale: 1.05, rot: -0.09, skew: -0.2, jitter: 0.5, deco: 'arrow', drips: 1.5 },
+];
 
-const IDS = ['about', 'works', 'news', 'contact'];
-
-export async function buildWallMenu({ wallZ, seed = 11 }) {
+export async function buildWallMenu({ wallZ, seed = 23 }) {
   await loadFont();
   const rand = mulberry32(seed);
   const group = new THREE.Group();
   const items = new Map();
 
-  IDS.forEach((id, i) => {
-    const line = LAYOUT.lines[i % LAYOUT.lines.length];
-    const label = SECTIONS[id]?.label ?? id;
-    const { texture, aspect, ratio, text } = paintWord(label, rand);
-    const h = PAINT.letterHeight * line.scale * ratio; // 板は文字より上下に余白（垂れ・にじみ）がある
+  for (const word of WORDS) {
+    const label = SECTIONS[word.id]?.label ?? word.id;
+    const { texture, aspect, ratio, text } = paintWord(label, word, rand);
+    const h = PAINT.letterHeight * word.scale * ratio; // 板は文字より上下に余白（垂れ・にじみ）がある
     const m = h / text.canvasH; // canvas の 1px が何 m か
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(h * aspect, h),
@@ -47,37 +43,35 @@ export async function buildWallMenu({ wallZ, seed = 11 }) {
         depthWrite: false,
         roughness: 0.55, // 乾いたペンキはコンクリートより少しだけ艶がある
         metalness: 0,
-        // 暗い部屋でも読めるよう、ほんの少しだけ自分で光らせる（ホバーで強まる）
         emissive: new THREE.Color('#ffffff'),
         emissiveMap: texture,
-        emissiveIntensity: 0.18,
+        emissiveIntensity: PAINT.emissive,
         polygonOffset: true,
         polygonOffsetFactor: -4,
       }),
     );
-    // 板の左端を行の左端に合わせる
-    mesh.geometry.translate((h * aspect) / 2, 0, 0);
-    // 見た目の板は垂れの余白で下の行に重なるので、押せるのは文字の部分だけにする（透明な当たり板）
+    // 板の中心を語の中心に合わせる（ホバーで大きくするときに、その場でふくらむように）
+    mesh.geometry.translate((h * aspect) / 2 - (text.x + text.w / 2) * m, h / 2 - (text.y + text.h / 2) * m, 0);
+    // 見た目の板は垂れや添え書きの余白で他の語に重なるので、押せるのは文字の部分だけにする（透明な当たり板）
     mesh.userData.noPick = true;
-    const pad = 0.04; // 押しやすいよう少しだけ広げる（m）
-    const hitW = text.w * m + pad * 2;
-    const hitH = text.h * m + pad * 2;
+    const pad = 0.05; // 押しやすいよう少しだけ広げる（m）
     const hit = new THREE.Mesh(
-      new THREE.PlaneGeometry(hitW, hitH),
+      new THREE.PlaneGeometry(text.w * m + pad * 2, text.h * m + pad * 2),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false }),
     );
-    hit.position.set(text.x * m - pad + hitW / 2, h / 2 - (text.y * m - pad + hitH / 2), 0.001);
+    hit.position.z = 0.001;
     hit.userData.noHighlight = true;
 
-    const word = new THREE.Group();
-    word.add(mesh, hit);
-    word.position.set(LAYOUT.x + line.dx, LAYOUT.y - i * PAINT.lineGap, wallZ + 0.004);
-    word.rotation.z = line.rot;
-    word.userData.hotspotLabel = label;
-    word.userData.noTooltip = true; // 文字そのものがメニューなので、ツールチップは出さない
-    group.add(word);
-    items.set(id, word);
-  });
+    const obj = new THREE.Group();
+    obj.add(mesh, hit);
+    obj.position.set(word.x + (text.w * m) / 2, word.y, wallZ + 0.004);
+    obj.rotation.z = word.rot;
+    obj.userData.hotspotLabel = label;
+    obj.userData.noTooltip = true; // 文字そのものがメニューなので、ツールチップは出さない
+    obj.userData.hoverScale = 0.08; // 紺は光らせても目立たないので、ホバーで少し大きくする（hotspots.js）
+    group.add(obj);
+    items.set(word.id, obj);
+  }
 
   return { group, items };
 }
@@ -93,58 +87,133 @@ async function loadFont() {
   }
 }
 
-// 1 語を塗る。aspect は canvas の横 / 縦、ratio は canvas の縦 / 文字の高さ
-function paintWord(text, rand) {
+// 1 語を塗る。aspect は canvas の横 / 縦、ratio は canvas の縦 / 文字の高さ、
+// text は文字の部分の範囲（canvas の px。左上が原点）
+function paintWord(label, word, rand) {
   const PX = 220; // 文字の高さ（px）
-  const pad = { x: 70, top: 60, bottom: 150 }; // 下は垂れの分を広めに
+  const pad = { x: 110, top: 90, bottom: 170 }; // 下は垂れの分を広めに
+  const font = (size) => `${Math.round(size)}px ${PAINT.font}`;
   const measure = document.createElement('canvas').getContext('2d');
-  measure.font = `${PX}px ${PAINT.font}`;
-  const textW = Math.ceil(measure.measureText(text).width);
+
+  // 1 文字ずつの崩れ（大きさ・傾き・上下・字間）
+  const j = word.jitter;
+  const letters = [];
+  let advance = 0;
+  for (const ch of label) {
+    const size = PX * (1 + (rand() - 0.5) * 0.24 * j);
+    measure.font = font(size);
+    const cw = measure.measureText(ch).width;
+    letters.push({
+      ch,
+      size,
+      x: advance,
+      dy: (rand() - 0.5) * PX * 0.16 * j,
+      rot: (rand() - 0.5) * 0.3 * j,
+      cw,
+    });
+    advance += cw * (0.9 + rand() * 0.14 * j);
+  }
+  const textW = Math.ceil(advance);
   const w = textW + pad.x * 2;
-  const h = PX + pad.top + pad.bottom;
-  const H = h;
+  const H = PX + pad.top + pad.bottom;
+  const baseY = pad.top + PX * 0.82;
+
+  // 文字と添え書きを描く（マスクと本体の両方で同じ形を使う）
+  const drawText = (c, ox = 0, oy = 0) => {
+    for (const l of letters) {
+      c.save();
+      c.translate(pad.x + l.x + l.cw / 2 + ox, baseY + l.dy + oy);
+      c.transform(1, 0, word.skew, 1, 0, 0); // 斜体
+      c.rotate(l.rot);
+      c.font = font(l.size);
+      c.fillText(l.ch, -l.cw / 2, 0);
+      c.restore();
+    }
+  };
+  const drawDeco = (c) => {
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    const left = pad.x;
+    const right = pad.x + textW;
+    if (word.deco === 'underline') {
+      // 勢いのある下線（右へ跳ね上がる）
+      c.lineWidth = 13;
+      c.beginPath();
+      c.moveTo(left - 10, baseY + 34);
+      c.quadraticCurveTo((left + right) / 2, baseY + 52, right + 30, baseY + 14);
+      c.stroke();
+    } else if (word.deco === 'star') {
+      // 右上に星
+      const cx = right + 52;
+      const cy = pad.top + 10;
+      c.lineWidth = 9;
+      c.beginPath();
+      for (let i = 0; i <= 5; i++) {
+        const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
+        const r = 40;
+        if (i === 0) c.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        else c.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      }
+      c.stroke();
+    } else if (word.deco === 'ring') {
+      // 語をぐるっと囲む、閉じきらない楕円
+      c.lineWidth = 9;
+      c.beginPath();
+      c.ellipse((left + right) / 2, pad.top + PX * 0.45, textW / 2 + 60, PX * 0.72, -0.06, 0.15, Math.PI * 2 + 0.05);
+      c.stroke();
+    } else if (word.deco === 'arrow') {
+      // 左から語を指す矢印
+      const y = pad.top + PX * 0.5;
+      c.lineWidth = 10;
+      c.beginPath();
+      c.moveTo(left - 100, y + 30);
+      c.quadraticCurveTo(left - 60, y - 10, left - 18, y);
+      c.moveTo(left - 42, y - 22);
+      c.lineTo(left - 16, y);
+      c.lineTo(left - 46, y + 16);
+      c.stroke();
+    }
+  };
+
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
-  const baseY = pad.top + PX * 0.82;
-  const y0 = 0;
+  ctx.fillStyle = PAINT.color;
+  ctx.strokeStyle = PAINT.color;
 
-  // 文字の形（マスク）。飛沫と垂れの位置を決めるのに使う
+  // 形のマスク。飛沫と垂れの位置を決めるのに使う
   const mask = document.createElement('canvas');
   mask.width = w;
   mask.height = H;
   const mctx = mask.getContext('2d');
-  mctx.font = `${PX}px ${PAINT.font}`;
-  mctx.fillStyle = '#fff';
-  mctx.fillText(text, pad.x, y0 + baseY);
+  mctx.fillStyle = mctx.strokeStyle = '#fff';
+  drawText(mctx);
+  drawDeco(mctx);
   const alpha = mctx.getImageData(0, 0, w, H).data;
   const solid = (x, y) => x >= 0 && y >= 0 && x < w && y < H && alpha[(y * w + x) * 4 + 3] > 128;
-
-  ctx.font = `${PX}px ${PAINT.font}`;
-  ctx.fillStyle = PAINT.color;
-  ctx.strokeStyle = PAINT.color;
 
   // 1. 吹き付けのにじみ（縁のぼんやりした粉）
   ctx.save();
   ctx.shadowColor = PAINT.color;
-  ctx.shadowBlur = 22;
-  ctx.globalAlpha = 0.35;
-  ctx.fillText(text, pad.x, y0 + baseY);
+  ctx.shadowBlur = 16 + rand() * 14;
+  ctx.globalAlpha = 0.3;
+  drawText(ctx);
+  drawDeco(ctx);
   ctx.restore();
 
   // 2. 本体。少しずつずらして重ね塗りし、縁をわずかに不揃いに
   for (let i = 0; i < 4; i++) {
     ctx.globalAlpha = i === 0 ? 1 : 0.5;
-    ctx.fillText(text, pad.x + (rand() - 0.5) * 3, y0 + baseY + (rand() - 0.5) * 3);
+    drawText(ctx, (rand() - 0.5) * 3, (rand() - 0.5) * 3);
   }
   ctx.globalAlpha = 1;
+  drawDeco(ctx);
 
-  // 3. 垂れ：文字の下端から、ところどころペンキが流れ落ちる
-  const drips = Math.max(3, Math.round(textW / 90));
+  // 3. 垂れ：塗りの下端から、ところどころペンキが流れ落ちる
+  const drips = Math.max(2, Math.round((textW / 90) * word.drips));
   for (let n = 0, tries = 0; n < drips && tries < 400; tries++) {
-    const x = Math.round(pad.x + rand() * textW);
-    // その列のいちばん下の塗り
+    const x = Math.round(pad.x - 40 + rand() * (textW + 80));
     let y = -1;
     for (let yy = H - 1; yy >= 0; yy--) {
       if (solid(x, yy)) {
@@ -154,7 +223,7 @@ function paintWord(text, rand) {
     }
     if (y < 0) continue;
     n++;
-    const len = 18 + rand() ** 1.8 * 120;
+    const len = Math.min(H - y - 12, 16 + rand() ** 1.8 * 130);
     const width = 3 + rand() * 5;
     ctx.lineCap = 'round';
     ctx.lineWidth = width;
@@ -162,19 +231,17 @@ function paintWord(text, rand) {
     ctx.moveTo(x, y - 4);
     ctx.lineTo(x + (rand() - 0.5) * 2, y + len);
     ctx.stroke();
-    // 先にたまった玉
     ctx.beginPath();
     ctx.arc(x, y + len, width * 0.85, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // 4. 飛沫：文字のまわりに細かい粒
-  for (let i = 0; i < 900; i++) {
-    const x = Math.round(pad.x - 30 + rand() * (textW + 60));
-    const y = Math.round(y0 + pad.top - 30 + rand() * (PX + 60));
-    // 塗りの近くほど粒が多い
+  // 4. 飛沫：塗りのまわりに細かい粒
+  for (let i = 0; i < 1100; i++) {
+    const x = Math.round(rand() * w);
+    const y = Math.round(rand() * H);
     let near = false;
-    for (let k = 0; k < 4 && !near; k++) near = solid(x + Math.round((rand() - 0.5) * 40), y + Math.round((rand() - 0.5) * 40));
+    for (let k = 0; k < 4 && !near; k++) near = solid(x + Math.round((rand() - 0.5) * 44), y + Math.round((rand() - 0.5) * 44));
     if (!near) continue;
     ctx.globalAlpha = 0.25 + rand() * 0.6;
     ctx.beginPath();
@@ -186,25 +253,25 @@ function paintWord(text, rand) {
   // 5. 塗りムラ：コンクリートに吸われて薄くなったところ（透明度を細かく揺らす）
   const img = ctx.getImageData(0, 0, w, H);
   const d = img.data;
+  const phase = rand() * 10;
   for (let i = 3; i < d.length; i += 4) {
     if (d[i] === 0) continue;
     const p = (i - 3) / 4;
     const x = p % w;
     const y = (p / w) | 0;
-    const blotch = 0.88 + 0.12 * Math.sin(x * 0.045 + Math.sin(y * 0.03) * 3) * Math.sin(y * 0.05 + x * 0.01);
-    d[i] = Math.round(d[i] * blotch * (0.86 + rand() * 0.14));
+    const blotch = 0.86 + 0.14 * Math.sin(x * 0.045 + phase + Math.sin(y * 0.03) * 3) * Math.sin(y * 0.05 + x * 0.01);
+    d[i] = Math.round(d[i] * blotch * (0.84 + rand() * 0.16));
   }
   ctx.putImageData(img, 0, 0);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
-  // text: 文字の部分の範囲（canvas の px。左上が原点）。当たり判定に使う
   return {
     texture,
     aspect: w / H,
     ratio: H / PX,
-    text: { x: pad.x, y: pad.top, w: textW, h: PX, canvasH: H },
+    text: { x: pad.x, y: pad.top - PX * 0.08, w: textW, h: PX * 1.08, canvasH: H },
   };
 }
 

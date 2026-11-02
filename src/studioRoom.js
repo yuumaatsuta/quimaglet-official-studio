@@ -179,8 +179,9 @@ export async function buildStudioRoom(onProgress) {
   // 奥の壁際に吊られた蛍光灯
   const tubeZ = -D + 0.75;
   const tubeY = 5.2;
-  const tubeX0 = -1.3;
-  const tubeX1 = 2.3;
+  // 奥の壁の中央。夜はこの真下の壁がいちばん明るいので、落書きのメニューもここに描く（wallMenu.js）
+  const tubeX0 = -1.8;
+  const tubeX1 = 1.8;
   const tubeMat = new THREE.MeshStandardMaterial({ color: '#f4f2ee', emissive: '#fff8ee', emissiveIntensity: 1.2, roughness: 0.3 });
   const tube = pipe([tubeX0, tubeY, tubeZ], [tubeX1, tubeY, tubeZ], 0.055, tubeMat);
   tube.castShadow = false;
@@ -192,7 +193,7 @@ export async function buildStudioRoom(onProgress) {
   pipe([tubeX0 - 0.12, tubeY, tubeZ], [tubeX0, tubeY, tubeZ], 0.065);
   pipe([tubeX1, tubeY, tubeZ], [tubeX1 + 0.14, tubeY, tubeZ], 0.065);
   pipe([tubeX0 - 0.1, tubeY + 0.1, tubeZ], [tubeX1 + 0.1, tubeY + 0.1, tubeZ], 0.012);
-  for (const x of [tubeX0 + 0.2, 0.0, 1.0, tubeX1 - 0.2]) pipe([x, tubeY + 0.1, tubeZ], [x, H, tubeZ], 0.006);
+  for (const x of [tubeX0 + 0.2, -0.5, 0.5, tubeX1 - 0.2]) pipe([x, tubeY + 0.1, tubeZ], [x, H, tubeZ], 0.006);
 
   // ---------- 外：バルコニー・手すり（空と景色は weatherScene.js） ----------
 
