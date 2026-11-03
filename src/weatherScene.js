@@ -191,7 +191,16 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     skyUniforms.uCover.value = c.cloudCover;
     skyUniforms.uFlash.value = flash * 0.6;
     skyUniforms.uGlow.value.copy(GLOW).multiplyScalar(c.nightness);
-    city.setLook({ night: c.nightness });
+    city.setLook({
+      night: c.nightness,
+      sun: c.sun,
+      sunColor: c.sunColor,
+      skyTop: c.skyTop,
+      horizon: c.skyHorizon,
+      fog: c.fog,
+      glow: skyUniforms.uGlow.value,
+      flash: flash * 0.6,
+    });
 
     scene.fog.color.copy(c.skyHorizon);
     scene.fog.density = c.fog;
