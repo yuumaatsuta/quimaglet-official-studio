@@ -637,6 +637,12 @@ const FURNITURE = [
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
     narrow: { x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 } },
   },
+  // HB の前の床に置いたエフェクターボード（生成モデル）。踏む側（モデルの +z）を部屋の内側へ向け、少し斜めに置く。
+  // 縦長の画面では、タワーに立てかけた HB の前に置く
+  {
+    url: 'models/pedalboard.glb', x: -2.55, z: -7.8, rotationY: Math.PI / 2 - 0.18, width: 0.6, mirror: { height: 0.15, strength: 0.3 },
+    narrow: { x: -1.8, z: -7.3, rotationY: 0.45 },
+  },
   // 右奥のブラウン管のタワー（キーボードの奥）の、いちばん下の段に立てかけたベース（白いジャズベースの生成モデル）。
   // Gretsch とは向きを変え、左へ大きく振って、少しひねって立てかける
   {
@@ -682,8 +688,14 @@ async function loadFurniture(manager) {
       if (item.float) return floating(model, item);
       if (!item.narrow) return place(model, item);
       // narrow: 縦長の画面では別の置き方にする。両方の置き方を作っておき、画面の縦横比で切り替える
+      // 複製には材質も別に持たせる（映り込み mirror の仕掛けが、同じ材質に二重にかからないように）。
+      // 置く前に複製する（材質の onBeforeCompile は複製されないので、tone の minRoughness は付け直さない）
+      const copy = model.clone();
+      copy.traverse((o) => {
+        if (o.isMesh) o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+      });
       const wide = place(model, item);
-      const tall = place(model.clone(), { ...item, ...item.narrow });
+      const tall = place(copy, { ...item, ...item.narrow });
       const both = new THREE.Group();
       both.add(wide, tall);
       both.userData.box = wide.userData.box;
