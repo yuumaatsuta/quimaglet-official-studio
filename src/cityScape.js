@@ -633,24 +633,62 @@ function buildingMaterial(uniforms) {
           vec3 inside = vGlass * (amb * 0.22);
           vec3 g = mix(inside, sky, F) + uSunCol * pow(max(dot(R, uSunDir), 0.0), 400.0) * 25.0 * F;
 
-          // 窓明かり：フロアの区画ごとに灯る。遠くて 1 フロアが数画素より小さければ平均で塗る
-          float h = h21(vec2(zn, fl) + seed * 97.0);
+          // 窓明かり。オフィスはフロアの区画ごと、マンションは住戸ごとに灯り、窓 1 枚ずつ明るさ・色・ブラインドが違う。
+          // 遠くて 1 フロアが数画素より小さければ平均で塗る
+          bool resid = style > 0.5 && style < 1.5;
+          float bay = style < 0.5 ? 1.5 : style < 1.5 ? 6.0 : style < 2.5 ? 2.2 : style < 3.5 ? 1.2 : 3.0;
+          float wc = floor(u / bay);
+          float fv = fract(v / floorH); // フロアの中の高さ（0 床 〜 1 天井）
+          float hz = h21(vec2(zn, fl) + seed * 97.0);
           float hf = h21(vec2(fl, seed * 13.0));
-          float lit = step(h, ratio);
-          if (hf < 0.1) lit = 1.0; else if (hf > 0.88) lit = 0.0;
-          lit *= step(0.015, fract(h * 71.0 + uTime * 0.003 * fract(seed * 7.0)));
-          float ld = 1.0 - smoothstep(0.3, 0.9, fwidth(v / floorH));
-          float hc = fract(h * 13.7 + seed * 3.1);
+          float hw = h21(vec2(wc, fl) + seed * 53.0);
+          float on = step(hz, ratio);
+          if (!resid) {
+            // 全部点いているフロア・消えているフロアがある。点いている区画の中にも消えている窓がある
+            if (hf < 0.07) on = 1.0; else if (hf > 0.85) on = 0.0;
+            on *= step(0.12, hw);
+          }
+          // 暗い所にぽつんと点いている窓（残業・階段室）
+          on = max(on, step(0.978, hw));
+          // ゆっくり点いたり消えたり
+          on *= step(0.012, fract(hw * 71.0 + uTime * 0.0025 * fract(seed * 7.0)));
+
+          float bright = 0.3 + 0.95 * pow(fract(hw * 7.31), 1.6);
           vec3 lamp;
-          if (style > 0.5 && style < 1.5) lamp = hc < 0.6 ? vec3(1.0, 0.62, 0.32) : vec3(1.0, 0.8, 0.6);
-          else lamp = hc < 0.5 ? vec3(0.72, 0.85, 1.0) : hc < 0.94 ? vec3(1.0, 0.8, 0.55) : vec3(0.3, 0.85, 1.0);
-          float inten = mix(1.0, 0.55 + 0.9 * fract(h * 29.0), ld);
-          float ceil_ = mix(0.8, 0.55 + 0.6 * fract(v / floorH), ld);
-          lit = mix(ratio * 0.95, lit, ld);
-          lamp = mix(vec3(0.9, 0.85, 0.8), lamp, ld);
+          if (resid) {
+            float c = fract(hw * 3.71);
+            lamp = c < 0.45 ? vec3(1.0, 0.6, 0.28) : c < 0.8 ? vec3(1.0, 0.74, 0.46) : vec3(0.95, 0.88, 0.78);
+            // テレビの青いちらつき
+            if (fract(hw * 11.3) < 0.07) {
+              lamp = vec3(0.42, 0.58, 1.0);
+              bright *= 0.35 + 0.25 * sin(uTime * 7.0 + hw * 50.0) + 0.15 * sin(uTime * 13.0 + hw * 20.0);
+            }
+          } else {
+            vec3 cool = vec3(0.74, 0.86, 1.0);
+            vec3 warm = vec3(1.0, 0.84, 0.62);
+            lamp = mix(cool, warm, clamp(fract(hz * 5.13) * 1.3 - 0.2 + (fract(hw * 3.7) - 0.5) * 0.3, 0.0, 1.0));
+            if (fract(hz * 17.9) < 0.03) lamp = vec3(0.35, 0.85, 1.0);
+            // 天井の照明の列（窓の横方向にゆるい明暗）
+            bright *= 0.85 + 0.15 * cos(u * 2.6);
+          }
+          // ブラインド・カーテン：窓の上の方が下りていて、光が弱まる
+          float blind = fract(hw * 17.13);
+          float shade = blind < 0.45 ? mix(1.0, resid ? 0.35 : 0.25, step(1.0 - blind * 1.5, fv)) : 1.0;
+          // 室内の明るさのむら：天井ぎわが明るく、床ぎわは暗い
+          float room = mix(0.45, 1.15, smoothstep(0.15, 0.95, fv));
+          // 斜めから見ると、窓の奥の室内は窓枠に隠れて暗く見える
+          float depth = mix(0.35, 1.0, smoothstep(0.05, 0.6, cosv));
+
+          float ld = 1.0 - smoothstep(0.3, 0.9, fwidth(v / floorH));
+          float near = on * bright * shade * room;
+          float avg = ratio * (resid ? 0.7 : 0.78) * 0.62;
+          float glowK = mix(avg, near, ld) * depth;
+          lamp = mix(resid ? vec3(1.0, 0.72, 0.45) : vec3(0.9, 0.88, 0.85), lamp, ld);
           // 昼もオフィスの照明は点いているが、外の明るさに負けてほとんど見えない
-          float power = mix(0.05, 1.15, uNight);
-          vec3 emit = lamp * lit * inten * ceil_ * power * (1.0 - F * 0.6);
+          float power = mix(0.05, 1.35, uNight);
+          vec3 emit = lamp * glowK * power * (1.0 - F * 0.6);
+          // 消えている窓の奥も真っ黒ではない（非常灯・街明かりの照り返し）
+          emit += vec3(0.012, 0.015, 0.024) * uNight * (1.0 - on * ld);
           // 窓の部分だけが室内（スパンドレルは不透明なガラス）
           g = mix(mix(inside * 0.6, sky, F), g + emit, win / max(glass, 1e-3));
           col = mix(col, g, glass);

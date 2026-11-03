@@ -122,7 +122,7 @@ export async function buildStudioRoom(onProgress) {
   box(0.32, 0.12, D, concrete, -W / 2 + 0.16, LEDGE_Y - 0.06, -D / 2);
 
   // コンクリートの棚の上に載る、升目の木の棚
-  buildCubbyShelf({ box, textures });
+  group.add(buildCubbyShelf({ box, textures }));
 
   // 家具（public/models/ の GLB）
   // クリックできる家具。focus のものは、押すとそこへズームする（main.js）
@@ -408,6 +408,109 @@ function buildCubbyShelf({ box, textures }) {
     const z = z0 + t / 2 + (c * (len - t)) / cols;
     board(depth, height, t, wood, xc, y0 + height / 2, z);
   }
+
+  // 升目の中身（本）。升目の内側の範囲を渡す
+  const cells = [];
+  for (let r = 0; r < rows; r++) {
+    const yb = y0 + t + (r * (height - t)) / rows;
+    const yt = y0 + ((r + 1) * (height - t)) / rows;
+    for (let c = 0; c < cols; c++) {
+      const za = z0 + t + (c * (len - t)) / cols;
+      const zb = z0 + ((c + 1) * (len - t)) / cols;
+      cells.push({ yb, yt, za, zb });
+    }
+  }
+  return shelfBooks(cells, { front: x0 + depth, back: x0 + 0.012 });
+}
+
+// 升目に入れた本。7 割ほどの升目に、立てて並べた本・寄りかかった本・平積みの本を入れる。
+// 背表紙は部屋（+x）へ向ける。文字は描かない（遠目には崩れて見えるため）。色は落ち着いた布・紙の色
+function shelfBooks(cells, { front, back }) {
+  const rand = mulberry32(29);
+  const r = (a, b) => a + rand() * (b - a);
+  const COLORS = [
+    '#1f2a3a', '#2b3b52', '#5a1f24', '#7a2e2a', '#3d4a2c', '#556040', '#b8a98a', '#d9d0bd',
+    '#e6e1d6', '#1b1b1d', '#3a3a3c', '#7c7f84', '#a9832f', '#8a5a2b', '#2f4f4f', '#6b4c6b',
+    '#c45c3b', '#efe9dc', '#4a6a7a', '#9c2f2f',
+  ];
+  const books = []; // { w: 厚み(z), h: 高さ(y), d: 奥行き(x), x, y, z, rx, ry, color }
+  const color = () => new THREE.Color(COLORS[Math.floor(rand() * COLORS.length)]).multiplyScalar(r(0.85, 1.08));
+  const maxDepth = front - back - 0.01;
+
+  for (const cell of cells) {
+    const mode = rand();
+    const ch = cell.yt - cell.yb;
+    const cw = cell.zb - cell.za;
+    if (mode < 0.25) continue; // 空の升目
+    if (mode < 0.86) {
+      // 立てて並べる。左右どちらかから詰め、最後の 1 冊を寄りかからせることもある
+      const fromLeft = rand() < 0.5;
+      const fill = mode < 0.66 ? r(0.9, 0.98) : r(0.45, 0.75);
+      let used = 0;
+      const series = rand() < 0.35 ? { h: ch * r(0.72, 0.92), d: r(0.15, 0.21), color: color() } : null; // 揃いの本
+      const row = [];
+      while (used < cw * fill) {
+        const w = series ? r(0.022, 0.03) : r(0.014, 0.048);
+        if (used + w > cw - 0.004) break;
+        const h = series ? series.h * r(0.99, 1.0) : Math.min(ch - 0.008, ch * r(0.62, 0.95));
+        const d = Math.min(maxDepth, series ? series.d : r(0.12, 0.23));
+        row.push({ w, h, d, color: series && rand() < 0.85 ? series.color.clone() : color() });
+        used += w + r(0, 0.002);
+      }
+      let z = fromLeft ? cell.za : cell.zb;
+      for (const b of row) {
+        const zc = fromLeft ? z + b.w / 2 : z - b.w / 2;
+        books.push({ ...b, x: front - 0.012 - b.d / 2 - r(0, 0.015), y: cell.yb, z: zc, rx: 0, ry: r(-0.02, 0.02) });
+        z += (fromLeft ? 1 : -1) * (b.w + 0.0015);
+      }
+      // 空きがあれば、最後の 1 冊を隣に寄りかからせる
+      const gap = fromLeft ? cell.zb - z : z - cell.za;
+      if (row.length && gap > 0.06 && rand() < 0.7) {
+        const w = r(0.016, 0.035);
+        const h = Math.min(ch - 0.01, ch * r(0.7, 0.9));
+        const a = Math.min(r(0.18, 0.42), Math.asin(Math.min(1, (gap - w) / h)));
+        // 底の外側の角を床に、上の角を隣の本に当てる
+        const s = fromLeft ? 1 : -1;
+        const zBase = z + s * (h * Math.sin(a) + w * Math.cos(a));
+        const zc = zBase - s * ((h / 2) * Math.sin(a) + (w / 2) * Math.cos(a));
+        const yc = (h / 2) * Math.cos(a) + (w / 2) * Math.sin(a);
+        books.push({ w, h, d: Math.min(maxDepth, r(0.13, 0.2)), x: front - 0.02 - 0.08, y: cell.yb + yc, z: zc, rx: -s * a, ry: 0, color: color(), centered: true });
+      }
+    } else {
+      // 平積み（大判の本・雑誌）。上に小さな本を立てることもある
+      let y = cell.yb;
+      const n = 2 + Math.floor(rand() * 4);
+      const zc = rand() < 0.5 ? cell.za + cw * 0.38 : cell.zb - cw * 0.38;
+      for (let i = 0; i < n && y < cell.yt - 0.06; i++) {
+        const thick = r(0.012, 0.035);
+        const w = Math.min(cw * 0.8, r(0.17, 0.27));
+        books.push({ w, h: thick, d: Math.min(maxDepth, r(0.16, 0.24)), x: front - 0.015 - 0.11, y, z: zc + r(-0.01, 0.01), rx: 0, ry: r(-0.08, 0.08), color: color() });
+        y += thick;
+      }
+    }
+  }
+
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0 });
+  const mesh = new THREE.InstancedMesh(geo, mat, books.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const p = new THREE.Vector3();
+  const sc = new THREE.Vector3();
+  books.forEach((b, i) => {
+    e.set(b.rx, b.ry, 0, 'YXZ');
+    q.setFromEuler(e);
+    // 立てた本は底を棚板に付ける（centered の本は中心の高さを直接持つ）
+    p.set(b.x, b.centered ? b.y : b.y + b.h / 2, b.z);
+    m.compose(p, q, sc.set(b.d, b.h, b.w));
+    mesh.setMatrixAt(i, m);
+    mesh.setColorAt(i, b.color);
+  });
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.userData.noPick = true;
+  return mesh;
 }
 
 // ---------------------------------------------------------------------------
