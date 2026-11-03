@@ -4,6 +4,7 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 import { CONFIG } from './config.js';
 import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
+import { floorMirror, footprintShadow } from './floorMirror.js';
 import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
 import { buildFloorLogo } from './floorLogo.js';
@@ -600,6 +601,7 @@ function applyWorldUV(geo, offset, fn) {
 //     rotationX: 前後の傾き（負で後ろが下がる）
 //     天面が平らでない物（ブラウン管の後ろの斜面など）は、Blender で接地する傾き・ずれを計算して指定する
 //   float: 床に置かず、この高さ（中心, m）に浮かせてゆっくり漂わせる
+//   mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（src/floorMirror.js）
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
 const FURNITURE = [
   // 部屋の中央・奥寄り（奥の壁から 1.6m）。モデルの正面は -z 向きなので 180° 回す
@@ -619,7 +621,7 @@ const FURNITURE = [
   },
   // 右奥のブラウン管のタワーの前の床に置いたキーボード（Roland FANTOM の生成モデル）。
   // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
-  { url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25 },
+  { url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
 ];
@@ -650,8 +652,13 @@ async function loadFurniture(manager) {
 
       const group = new THREE.Group();
       group.add(model);
-      // 上に載せる物は、床用の接地影を付けない（下の家具の中に埋もれる）
-      if (!item.on) {
+      // mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（背の低い、角張った物向け）
+      if (item.mirror) {
+        model.updateMatrixWorld(true);
+        const placed = modelBox(model);
+        group.add(footprintShadow(placed), floorMirror(model, placed));
+      } else if (!item.on) {
+        // 上に載せる物は、床用の接地影を付けない（下の家具の中に埋もれる）
         const center = box.getCenter(new THREE.Vector3());
         group.add(contactShadow(box, item.x + center.x, item.z + center.z));
       }
