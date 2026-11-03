@@ -5,6 +5,7 @@ import { CONFIG } from './config.js';
 import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { floorMirror, footprintShadow } from './floorMirror.js';
+import { wallShadow } from './wallShadow.js';
 import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
 import { buildFloorLogo } from './floorLogo.js';
@@ -162,17 +163,24 @@ export async function buildStudioRoom(onProgress) {
   const towerTarget = new THREE.Vector3(0, 0, -3.5);
   const towerRand = mulberry32(7);
   // 右奥の角
-  group.add(buildCrtTower({
+  const rightTower = buildCrtTower({
     templates: crtTemplates, corner: new THREE.Vector3(W / 2, 0, -D),
     along: new THREE.Vector3(-1, 0, 0), side: new THREE.Vector3(0, 0, 1),
     target: towerTarget, rand: towerRand, armMaterial: steel,
-  }));
+  });
   // 左奥の角（左の壁のコンクリート棚の出の分だけ内側から）
-  group.add(buildCrtTower({
+  const leftTower = buildCrtTower({
     templates: crtTemplates, corner: new THREE.Vector3(-W / 2 + 0.32, 0, -D),
     along: new THREE.Vector3(1, 0, 0), side: new THREE.Vector3(0, 0, 1),
     target: towerTarget, rand: towerRand, armMaterial: steel,
-  }));
+  });
+  group.add(rightTower, leftTower);
+  // タワーが奥の壁と左の壁に落とす影（ブラウン管とアームの形に沿って）
+  group.add(
+    wallShadow(leftTower, { wall: 'z', at: -D, light: WALL_LIGHT.back }),
+    wallShadow(leftTower, { wall: 'x', at: -W / 2, light: WALL_LIGHT.left }),
+    wallShadow(rightTower, { wall: 'z', at: -D, light: WALL_LIGHT.back }),
+  );
 
   // 左上の斜めのコンクリート面（奥の角で天井に取り付き、手前は 45° のハンチになる）
   group.add(slopedSlab(concrete));
@@ -730,6 +738,12 @@ async function loadFurniture(manager) {
   return groups;
 }
 
+// 壁際の物が壁に落とす影の向き（光の進む向き）。窓（右）と天井から、手前寄りに差す光
+const WALL_LIGHT = {
+  left: new THREE.Vector3(-1, -0.75, -0.35),
+  back: new THREE.Vector3(-0.55, -0.7, -1),
+};
+
 // この縦横比（横 / 縦）より縦長の画面では、FURNITURE の narrow の置き方を使う
 const NARROW_ASPECT = 0.8;
 
@@ -749,6 +763,8 @@ function place(model, item) {
   if (item.wall) {
     model.updateMatrixWorld(true);
     group.add(wallHanger(modelBox(model)));
+    // 壁に落ちる影（ギターとハンガーの形に沿って）
+    group.add(wallShadow(group, { wall: 'x', at: -W / 2, light: WALL_LIGHT.left }));
   }
   // mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（背の低い、角張った物向け）
   if (item.mirror) {

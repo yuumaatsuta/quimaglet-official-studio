@@ -14,6 +14,13 @@ export function tagHotspot(map, id, obj) {
   map.set(id, obj);
 }
 
+// 押せる物か。three.js の当たり判定は、隠している物（visible = false）にも当たるので、親までたどって確かめる
+export function isShown(obj) {
+  for (let o = obj; o; o = o.parent) if (!o.visible) return false;
+  return true;
+}
+export const isPickable = (obj) => !obj.userData.noPick && isShown(obj);
+
 const CLICK_SLOP = 8; // px。これ以上動いたらドラッグとみなす
 
 export function createHotspots({ camera, root, hotspots, sections, tooltip, highlightColor, onSelect }) {
@@ -42,7 +49,7 @@ export function createHotspots({ camera, root, hotspots, sections, tooltip, high
   function pick(x, y) {
     ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
-    const hit = raycaster.intersectObject(root, true).find((h) => !h.object.userData.noPick);
+    const hit = raycaster.intersectObject(root, true).find((h) => isPickable(h.object));
     return hit?.object.userData.hotspotId ?? null;
   }
 

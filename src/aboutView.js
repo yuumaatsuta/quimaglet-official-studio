@@ -1,26 +1,44 @@
-import { ABOUT, escapeHtml } from './content.js';
+// About を開いたときの画面。バンドが作った 1 見開きのデザイン（public/images/about-*.webp）を、
+// 部屋の上に映す。映り始めと、映っている間ときどき、ノイズが走って絵が乱れる（エラーのような乱れ）。
+// 横長の画面では見開き全体を画面に収め、縦長の画面（スマホ）では高さを合わせて横へスクロールして読む。
+// 絵の外を押す・閉じるボタン・Esc で閉じる
 
-// About を開いたときの画面。部屋（カメラの映像）の上に、ノイズ混じりで文字が映り込む。
-// 本文（日本語の文章）とまわりの言葉（英語の短い文が中心）を同じ書体・同じ白でひとつの構成に組み、
-// 本文がほかの文字に溶け込むようにする。余白は広めにとり、スクロールで読み進める。
-// 映っている間もときどきノイズが走る（エラーのような乱れ）。文字のない所を押すと閉じる
-
-const LAYOUT = {
-  rowGap: [9, 20], // 段と段のあいだの余白（画面の高さに対する %）
-  mainSpan: { wide: 5, narrow: 6 }, // 本文の幅（列数）。広い画面は 12 列、狭い画面は 6 列
+const SHEET = {
+  ratio: 4152 / 2921, // 元のデザインの縦横比
+  src: 'images/about-3200.webp',
+  srcset: 'images/about-1800.webp 1800w, images/about-3200.webp 3200w',
 };
 
 const NOISE = {
   scale: 3, // ノイズを何分の 1 の大きさで描いて引き伸ばすか（粗いほど軽い）
-  base: 0.09, // ふだんのざらつき
+  base: 0.07, // ふだんのざらつき
   intro: 0.5, // 映り始めのざらつき
-  introSeconds: 1.4,
-  burst: 0.38, // ときどき走る乱れの強さ
-  burstEvery: [3.5, 8], // 乱れの間隔（秒）
-  burstLength: [0.12, 0.42],
+  introSeconds: 1.2,
+  burst: 0.32, // ときどき走る乱れの強さ
+  burstEvery: [4, 9], // 乱れの間隔（秒）
+  burstLength: [0.1, 0.32],
 };
 
+// 絵の中の文字（読み上げ用。見た目は絵）
+const TEXT = `
+<h2>quimaglet</h2>
+<p>quimaglet focuses on creating music that offers companionship to those struggling with feelings of loneliness—the kind that strikes unexpectedly at 2:00 a.m.—or a sense of detachment from society.</p>
+<p>不意に訪れる孤独感や、社会との距離感に悩む人に寄り添いたい。</p>
+<p>音楽だけでなく、映像・アートワーク・システム・ライブ演出まで独自の世界観を作り出すアーティスト集団。</p>
+<p>quimagletは神奈川県相模原市で結成された。quimaglet -きまぐれ- は楽曲のジャンルがアイデンティティのように感じられ無意識に縛られる世の中で、表現したい思想、景色、体験、寄り添いたい人に向けて、広大な音楽の海から常にメンバーの色を活かした気まぐれなジャンルで曲を構成し、歌い上げられるアーティストでありたいという思いからつけられた。</p>
+<h3>VoGt. 渡辺 美月（作詞・作曲 / プロモーション）</h3>
+<p>Moonfusion. An expansive singing voice and an expressive, emotion-filled delivery.</p>
+<h3>GtCho. 熱田 悠馬（作詞・作曲 / アートワーク / エンジニア）</h3>
+<p>Responsible for intricate guitar work—blending alternative, jazz, and bossa nova—as well as visual presentation.</p>
+<h3>ba. 内田 泰河（編曲 / グッズ企画・デザイン）</h3>
+<p>With its distinctive melodic lines and memorable phrases, it elevates the ensemble.</p>
+<h3>Key. 浅葉 瑛太（作詞・作曲 / 編曲）</h3>
+<p>From a young age, I was intensely preoccupied with the question of why we live, and I went through life harboring a persistent, underlying sense of fear. In hindsight, I realize I grew up in a rather "cushy" environment—one where "happiness" was always close at hand. My family background, in fact, allowed me to take for granted a wide range of experiences. Above all, it was the opportunity to learn the piano that, I believe, shaped me into the musician I am today.</p>
+<p>Through the various failures I experienced during my student years, I came to realize that I am, in essence, "nobody"—someone who simply happened to be born to exceptional parents capable of bringing happiness into my immediate life. Since then, the very concept of "self-affirmation" has vanished from my vocabulary; at times, I even feel that my life lacks any inherent value. Because I am unable to love myself and have anchored my purpose for living in others, I consider myself a fragile person. I rely solely on the judgment of those around me, and I am frequently tossed about by an unattainable desire—the longing to be someone's "special" person.</p>
+<p>Because I myself constantly live with such a sense of loneliness, I write my songs with the hope that they—infused with my own deepest feelings—will reach others who carry that same loneliness.</p>`;
+
 export function createAboutView({ onOpen, onClose } = {}) {
+  const base = import.meta.env.BASE_URL;
   const root = document.createElement('div');
   root.id = 'about-view';
   root.className = 'about-view';
@@ -30,85 +48,46 @@ export function createAboutView({ onOpen, onClose } = {}) {
   root.setAttribute('aria-modal', 'true');
   root.setAttribute('aria-label', 'About');
   root.innerHTML = `
+    <div class="about-scroll">
+      <div class="about-page">
+        <img class="about-sheet" alt="" decoding="async"
+          src="${base}${SHEET.src}"
+          srcset="${SHEET.srcset.replace(/images\//g, `${base}images/`)}" />
+        <div class="sr-only">${TEXT}</div>
+      </div>
+    </div>
     <canvas class="about-noise" aria-hidden="true"></canvas>
-    <div class="about-scroll"><div class="about-page"></div></div>`;
+    <button type="button" class="about-close" aria-label="About を閉じる">× CLOSE</button>`;
   document.body.append(root);
   const noise = root.querySelector('.about-noise');
   const nctx = noise.getContext('2d');
   const scroller = root.querySelector('.about-scroll');
   const page = root.querySelector('.about-page');
+  const sheet = root.querySelector('.about-sheet');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let open = false;
   let returnFocus = null;
   let closeTimer = 0;
   let raf = 0;
 
-  // ---------- 組み版 ----------
+  // ---------- 大きさ ----------
 
-  function compose() {
+  // 横長の画面：見開き全体を収める。縦長の画面：高さを合わせ、横へスクロールして読む
+  function layout() {
     const narrow = innerWidth < 720;
-    const cols = narrow ? 6 : 12;
-    page.style.setProperty('--cols', cols);
-    const r = rand(2024);
-    const paras = String(ABOUT.main).trim().split(/\n\s*\n/).filter(Boolean);
-    const fills = shuffle(ABOUT.fill.length ? ABOUT.fill : ['QUIMAGLET'], 11);
-    const short = fills.filter((t) => [...t].length <= 18);
-    const long = fills.filter((t) => [...t].length > 18);
-    let si = 0;
-    let li = 0;
-    const nextShort = () => (short.length ? short[si++ % short.length] : fills[0]);
-    const nextLong = () => (long.length ? long[li++ % long.length] : nextShort());
-    let order = 0;
-
-    const rows = [];
-    const row = (blocks) => {
-      const el = document.createElement('div');
-      el.className = 'about-row';
-      el.style.marginBottom = `${(LAYOUT.rowGap[0] + r() * (LAYOUT.rowGap[1] - LAYOUT.rowGap[0])).toFixed(1)}vh`;
-      for (const b of blocks) el.append(b);
-      rows.push(el);
-    };
-    const block = (text, size, start, span, { main = false, drop = 0 } = {}) => {
-      const el = document.createElement(main ? 'p' : 'div');
-      el.className = `about-block is-${size}${main ? ' is-main' : ''}`;
-      if (!main && isJapanese(text) && [...text].length <= 14 && size !== 's' && r() < 0.5) el.classList.add('is-vertical');
-      el.innerHTML = escapeHtml(text);
-      el.style.gridColumn = `${start} / span ${Math.max(1, Math.min(span, cols - start + 1))}`;
-      if (drop) el.style.marginTop = `${drop.toFixed(1)}vh`;
-      el.style.setProperty('--d', `${180 + order++ * 140 + Math.floor(r() * 160)}ms`);
-      if (!main) el.setAttribute('aria-hidden', 'true');
-      return el;
-    };
-    const col = (lo, hi) => lo + Math.floor(r() * (hi - lo + 1));
-
-    // 書き出し：大きな言葉
-    row([block(nextShort(), 'xl', narrow ? 1 : col(1, 5), cols)]);
-
-    paras.forEach((p, i) => {
-      // 本文は左にそろえる。横の空いた所に、小さな英文をずらして置く
-      const span = narrow ? LAYOUT.mainSpan.narrow : LAYOUT.mainSpan.wide;
-      const blocks = [block(p, 'm', 1, span, { main: true })];
-      if (!narrow) blocks.push(block(nextLong(), r() < 0.5 ? 's' : 'm', col(8, 9), 4, { drop: r() * 14 }));
-      row(blocks);
-      // 合間：大きな一文か、散らばった小さな文
-      if (i === paras.length - 1) return;
-      if (r() < 0.5) {
-        row([block(nextShort(), r() < 0.5 ? 'xl' : 'l', narrow ? 1 : col(2, 7), cols)]);
-      } else if (narrow) {
-        row([block(nextLong(), 's', col(2, 3), 4), block(nextShort(), 'l', 1, 6, { drop: 3 })]);
-      } else {
-        row([
-          block(nextLong(), 's', col(1, 3), 3, { drop: r() * 6 }),
-          block(nextShort(), 'l', col(5, 6), 4, { drop: r() * 10 }),
-          block(nextLong(), 's', col(10, 11), 2, { drop: r() * 16 }),
-        ]);
-      }
-    });
-
-    // 締め：大きな言葉と小さな署名
-    row([block(nextShort(), 'xl', narrow ? 1 : col(3, 6), cols)]);
-    row([block('© QUIMAGLET', 's', narrow ? 1 : col(9, 10), 3)]);
-    page.replaceChildren(...rows);
+    const top = narrow ? 70 : 86; // ロゴとメニューの下から
+    const bottom = narrow ? 70 : 64; // 閉じるボタンの上まで
+    const side = narrow ? 12 : 32;
+    const availW = innerWidth - side * 2;
+    const availH = innerHeight - top - bottom;
+    const portrait = innerWidth < innerHeight;
+    const h = portrait ? availH : Math.min(availH, availW / SHEET.ratio);
+    const w = h * SHEET.ratio;
+    sheet.style.width = `${w.toFixed(0)}px`;
+    sheet.style.height = `${h.toFixed(0)}px`;
+    page.style.padding = `${top}px ${side}px ${bottom}px`;
+    // srcset は表示幅で選ばせる
+    sheet.sizes = `${Math.ceil(w)}px`;
   }
 
   // ---------- ノイズと乱れ ----------
@@ -140,19 +119,13 @@ export function createAboutView({ onOpen, onClose } = {}) {
     const intro = Math.max(0, 1 - t / NOISE.introSeconds);
     const level = Math.max(NOISE.base, NOISE.intro * intro * intro, bursting ? NOISE.burst : 0);
     drawNoise(level, bursting || intro > 0.4);
-    // 文字の乱れ：横へずれる・色が分かれる・一部が一瞬消える
+    // 絵の乱れ：横へずれて、色が左右に分かれる
     if ((bursting || intro > 0.35) && !reducedMotion) {
-      const shift = (Math.random() - 0.5) * (bursting ? 14 : 8);
-      page.style.transform = `translate3d(${shift.toFixed(1)}px, 0, 0) skewX(${((Math.random() - 0.5) * 3).toFixed(2)}deg)`;
+      const shift = (Math.random() - 0.5) * (bursting ? 12 : 8);
+      sheet.style.transform = `translate3d(${shift.toFixed(1)}px, 0, 0) skewX(${((Math.random() - 0.5) * 2).toFixed(2)}deg)`;
       page.classList.add('is-glitch');
-      if (Math.random() < 0.35) {
-        const blocks = page.querySelectorAll('.about-block');
-        const b = blocks[Math.floor(Math.random() * blocks.length)];
-        b?.classList.add('is-off');
-        setTimeout(() => b?.classList.remove('is-off'), 60 + Math.random() * 120);
-      }
     } else if (page.classList.contains('is-glitch')) {
-      page.style.transform = '';
+      sheet.style.transform = '';
       page.classList.remove('is-glitch');
     }
   }
@@ -198,8 +171,9 @@ export function createAboutView({ onOpen, onClose } = {}) {
     returnFocus = document.activeElement;
     root.hidden = false;
     root.classList.remove('is-closing');
-    compose();
+    layout();
     scroller.scrollTop = 0;
+    scroller.scrollLeft = 0;
     requestAnimationFrame(() => root.classList.add('is-open'));
     root.focus({ preventScroll: true });
     history.replaceState(null, '', '#about');
@@ -228,17 +202,12 @@ export function createAboutView({ onOpen, onClose } = {}) {
     }, 420);
   }
 
-  // 文字のない所を押したら閉じる（スクロールのためのドラッグでは click が来ないので閉じない）
+  // 絵の外を押したら閉じる（スクロールのためのドラッグでは click が来ないので閉じない）
   root.addEventListener('click', (e) => {
-    if (!e.target.closest('.about-block')) hide();
+    if (e.target.closest('.about-close') || !e.target.closest('.about-sheet')) hide();
   });
   addEventListener('keydown', (e) => e.key === 'Escape' && hide());
-  let resizeTimer = 0;
-  addEventListener('resize', () => {
-    if (!open) return;
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(compose, 200);
-  });
+  addEventListener('resize', () => open && layout());
 
   return {
     open: show,
@@ -249,30 +218,6 @@ export function createAboutView({ onOpen, onClose } = {}) {
   };
 }
 
-function isJapanese(text) {
-  return /[぀-ヿ一-鿿]/.test(text);
-}
-
 function rr(a, b) {
   return a + Math.random() * (b - a);
-}
-
-function rand(seed) {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function shuffle(list, seed) {
-  const r = rand(seed);
-  const a = [...list];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(r() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
 }

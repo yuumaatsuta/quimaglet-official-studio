@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { createAboutView } from './aboutView.js';
 import { GOODS, SECTIONS, loadContent } from './content.js';
 import { createGoodsPaper } from './goodsPaper.js';
-import { createHotspots } from './hotspots.js';
+import { createHotspots, isPickable, isShown } from './hotspots.js';
 import { createInput, isTouchDevice } from './input.js';
 import { createPanel } from './panel.js';
 import { loadRoom } from './room.js';
@@ -501,7 +501,7 @@ function hitRobot(x, y) {
   if (!room.robot) return false;
   robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
   robotRay.setFromCamera(robotNdc, camera);
-  return robotRay.intersectObject(room.robot.object, true).some((h) => h.object.isMesh && !h.object.userData.noPick);
+  return robotRay.intersectObject(room.robot.object, true).some((h) => h.object.isMesh && isPickable(h.object));
 }
 
 // 夜の月（触れると星空を映す・消す）
@@ -510,7 +510,7 @@ function hitMoon(x, y) {
   if (!sky?.active) return false;
   robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
   robotRay.setFromCamera(robotNdc, camera);
-  return robotRay.intersectObjects(sky.hitTargets, true).length > 0;
+  return robotRay.intersectObjects(sky.hitTargets, true).some((h) => isShown(h.object.parent));
 }
 
 let goodsAtDown = false; // 押し始めたときに Goods の紙が出ていたか（Goods を開いたその押し上げで閉じないように）

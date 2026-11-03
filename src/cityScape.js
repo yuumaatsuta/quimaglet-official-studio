@@ -32,31 +32,21 @@ const K_MIN = 0.5;
 const K_MAX = 3.6;
 const VIEW_K = 1.6; // 見える範囲のまんなか
 
-// 空の車道（目からの距離・高さ・片側の長さ・片道あたりの台数・速さ m/s）。
-// 窓の前を横切る向きに通す。最後の 2 本は奥へ向かう道
+// 空の車道（目からの距離・高さ・片側の長さ・速さ m/s）。窓の前を横切る向きに通す。
+// 車は行きと帰りに 1 台ずつ。窓の前を通り過ぎるのが、全体でおよそ CAR_GAP 秒に 1 台になるよう順番に出す
+const CAR_GAP = 10;
 const LANES = [];
 {
   const n = Math.hypot(1, VIEW_K);
   const side = [VIEW_K / n, 1 / n];
-  for (const [R, y, half, count, speed] of [
-    [36, 3.2, 55, 3, 8],
-    [62, 9, 75, 4, 11],
-    [105, -4, 105, 5, 14],
-    [165, 20, 150, 6, 17],
-    [250, 6, 200, 7, 20],
-    [380, 38, 280, 8, 24],
-    [620, 16, 420, 10, 28],
+  for (const [R, y, half, speed] of [
+    [62, 9, 75, 11],
+    [105, -4, 105, 14],
+    [165, 20, 150, 17],
+    [250, 6, 200, 20],
   ]) {
     const [cx, cz] = at(R, VIEW_K);
-    LANES.push({ a: [cx - side[0] * half, y, cz - side[1] * half], b: [cx + side[0] * half, y, cz + side[1] * half], count, speed });
-  }
-  for (const [k, y, count] of [
-    [1.15, 24, 10],
-    [2.15, 32, 10],
-  ]) {
-    const [ax, az] = at(60, k);
-    const [bx, bz] = at(1100, k);
-    LANES.push({ a: [ax, y, az], b: [bx, y + 30, bz], count, speed: 30 });
+    LANES.push({ a: [cx - side[0] * half, y, cz - side[1] * half], b: [cx + side[0] * half, y, cz + side[1] * half], speed });
   }
 }
 
@@ -722,14 +712,17 @@ function carGeometry() {
 const CAR_GLSL = /* glsl */ `
 uniform vec3 uA[${LANES.length}];
 uniform vec3 uB[${LANES.length}];
-// aCar: 車道の番号・走り出しの位置・速さ（m/s、負なら逆向き）・車道の中心からの横のずれ
+// aCar: 車道の番号・出番の時刻のずれ（周期に対する割合）・速さ（m/s、負なら逆向き）・車道の中心からの横のずれ
+// 周期 uPeriod 秒のうち、車道を端から端まで走る間だけ見える（ほかの間は遠くへ隠す）
+uniform float uPeriod;
 mat4 carMatrix(vec4 aCar, float t) {
   int li = int(aCar.x + 0.5);
   vec3 a = uA[0], b = uB[0];
   for (int i = 0; i < ${LANES.length}; i++) if (i == li) { a = uA[i]; b = uB[i]; }
   vec3 d = b - a;
   float len = length(d);
-  float s = fract(aCar.y + t * aCar.z / len);
+  float q = fract(t / uPeriod + aCar.y) * uPeriod * abs(aCar.z) / len;
+  float s = aCar.z > 0.0 ? q : 1.0 - q;
   vec3 dir = d / len;
   vec3 fwd = aCar.z > 0.0 ? dir : -dir;
   vec3 side = normalize(vec3(-dir.z, 0.0, dir.x));
@@ -737,6 +730,7 @@ mat4 carMatrix(vec4 aCar, float t) {
   vec3 up = normalize(vec3(0.0, 1.0, 0.0) + side * sin(t * 0.5 + aCar.y * 23.0) * 0.04);
   vec3 z = normalize(cross(fwd, up));
   up = cross(z, fwd);
+  if (q > 1.0) p = vec3(0.0, -1e5, 0.0);
   return mat4(vec4(fwd, 0.0), vec4(up, 0.0), vec4(z, 0.0), vec4(p, 1.0));
 }
 `;
@@ -744,12 +738,21 @@ mat4 carMatrix(vec4 aCar, float t) {
 function flyingCars(uniforms) {
   const list = [];
   const rand = mulberry(5);
+  // 窓の前（車道のまんなか）を通る時刻を CAR_GAP 秒ずつずらす。近い車道と遠い車道が交互になるよう並べる
+  const slots = [];
   LANES.forEach((lane, li) => {
-    for (const dir of [1, -1]) {
-      for (let i = 0; i < lane.count; i++) {
-        list.push([li, (i + rand() * 0.7) / lane.count, dir * lane.speed * (0.8 + rand() * 0.4), dir * (2.2 + rand() * 1.5)]);
-      }
-    }
+    for (const dir of [1, -1]) slots.push([li, dir]);
+  });
+  slots.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const period = CAR_GAP * slots.length;
+  slots.forEach(([li, dir], i) => {
+    const lane = LANES[li];
+    const len = Math.hypot(lane.b[0] - lane.a[0], lane.b[2] - lane.a[2]);
+    const speed = lane.speed * (0.85 + rand() * 0.3);
+    const midTime = len / speed / 2; // 走り出してから窓の前に来るまで
+    const order = (i * 3) % slots.length; // 出番をばらす
+    const phase = (((midTime - order * CAR_GAP) / period) % 1 + 1) % 1;
+    list.push([li, phase, dir * speed, dir * (2.2 + rand() * 1.5)]);
   });
   const carAttr = new Float32Array(list.flat());
   const PAINT = [[0.04, 0.04, 0.05], [0.6, 0.6, 0.62], [0.55, 0.04, 0.03], [0.82, 0.82, 0.8], [0.1, 0.13, 0.18], [0.35, 0.3, 0.25]];
@@ -758,6 +761,7 @@ function flyingCars(uniforms) {
   const laneUniforms = {
     uA: { value: LANES.map((l) => new THREE.Vector3(l.a[0], l.a[1], l.a[2])) },
     uB: { value: LANES.map((l) => new THREE.Vector3(l.b[0], l.b[1], l.b[2])) },
+    uPeriod: { value: period },
   };
 
   // 車体
