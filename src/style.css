@@ -72,17 +72,21 @@ button {
   top: max(14px, calc(15 * var(--u)), env(safe-area-inset-top));
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 16px;
 }
 
 .logo {
   pointer-events: auto;
-  color: var(--fg);
-  text-decoration: none;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  font-size: clamp(15px, calc(16 * var(--u)), 20px);
+  display: block;
+  line-height: 0;
+}
+/* ロゴ（logo white.png を切り抜いて縮めたもの。src/assets/logo.png） */
+.logo img {
+  display: block;
+  height: clamp(54px, calc(76 * var(--u)), 96px);
+  width: auto;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45)); /* 明るい昼の窓の前でも見えるように */
 }
 
 .nav {
@@ -107,22 +111,18 @@ button {
   text-underline-offset: 25%;
 }
 
-/* 横長の画面では、メニューは奥の壁の落書き（src/wallMenu.js）。
-   この文字のメニューは見た目だけ隠し、キーボードで移ったときと読み上げには残す。
-   縦長（スマホ）は壁の右上が画面に入らないので、このまま出す */
-@media (min-aspect-ratio: 1/1) {
-  /* メニューが隠れている間は、歯車だけを右端へ */
-  .settings-toggle {
-    margin-left: auto;
-  }
-  .nav:not(:focus-within) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+/* メニューは奥の壁の落書き（src/wallMenu.js）。PC もスマホも、この文字のメニューは見た目だけ隠し、
+   キーボードで移ったときと読み上げには残す */
+.settings-toggle {
+  margin-left: auto; /* メニューが隠れている間は、歯車だけを右端へ */
+}
+.nav:not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* 下の中央に IMMERSE ボタンだけ */
