@@ -446,6 +446,47 @@ function hitGoodsPaper(x, y) {
 
 addEventListener('keydown', (e) => e.key === 'Escape' && closeGoods());
 
+// 紙が長いときのスクロール（上の棒に巻き取られ、下の続きが出てくる）。ホイール・ドラッグ・矢印キー
+addEventListener(
+  'wheel',
+  (e) => {
+    if (!goods.open) return;
+    const k = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? innerHeight : 1;
+    if (goodsPaper.scrollBy(e.deltaY * k * goodsPxPerScreenPx())) e.preventDefault();
+  },
+  { passive: false },
+);
+addEventListener('keydown', (e) => {
+  if (!goods.open) return;
+  const step = { ArrowDown: 120, ArrowUp: -120, PageDown: 600, PageUp: -600, ' ': 600 }[e.key];
+  if (step && goodsPaper.scrollBy(step)) e.preventDefault();
+});
+let goodsDrag = null;
+addEventListener('pointerdown', (e) => {
+  goodsDrag = goods.open && e.target.tagName === 'CANVAS' ? { y: e.clientY, k: goodsPxPerScreenPx() } : null;
+});
+addEventListener('pointermove', (e) => {
+  if (!goodsDrag || !goods.open) return;
+  goodsPaper.scrollBy(-(e.clientY - goodsDrag.y) * goodsDrag.k);
+  goodsDrag.y = e.clientY;
+});
+addEventListener('pointerup', () => (goodsDrag = null));
+addEventListener('pointercancel', () => (goodsDrag = null));
+
+// 画面の 1 画素が、紙の組み版の何画素にあたるか（紙の位置で、上下 10cm が画面で何画素か測る）
+const goodsA = new THREE.Vector3();
+const goodsB = new THREE.Vector3();
+function goodsPxPerScreenPx() {
+  const paperMesh = goodsPaper.paper;
+  if (!paperMesh) return 1;
+  paperMesh.getWorldPosition(goodsA);
+  goodsB.copy(goodsA).setY(goodsA.y + 0.1);
+  goodsA.project(camera);
+  goodsB.project(camera);
+  const px = (Math.abs(goodsB.y - goodsA.y) * innerHeight) / 2;
+  return px > 1 ? (goodsPaper.pagePxPerMeter * 0.1) / px : 1;
+}
+
 // ---------- ロボットを押す ----------
 // クリック・タップすると、ぴょんと跳ねて首を振り、こちらを見る（studioRoom.js の poke）
 const robotRay = new THREE.Raycaster();
