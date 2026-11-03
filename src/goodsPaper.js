@@ -84,7 +84,16 @@ export function createGoodsPaper() {
   topRoll.rotation.z = Math.PI / 2;
   const bottomRoll = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, PAPER.width, 32), rollMat);
   bottomRoll.rotation.z = Math.PI / 2;
-  pivot.add(topRoll, bottomRoll);
+  pivot.add(topRoll);
+
+  // 下の端の金具：巻物の芯の金属の棒と、両端の小さな浮遊ユニット（下へ青く噴いて、紙の下端を宙に支える）
+  const bottomRig = new THREE.Group();
+  const bottomRod = new THREE.Mesh(new THREE.CylinderGeometry(PAPER.rodRadius * 0.85, PAPER.rodRadius * 0.85, rodLength, 20), metal);
+  bottomRod.rotation.z = Math.PI / 2;
+  bottomRig.add(bottomRoll, bottomRod);
+  const hovers = [-1, 1].map((side) => hoverUnit(side, rodLength, metal, brass));
+  for (const h of hovers) bottomRig.add(h.group);
+  pivot.add(bottomRig);
 
   // 組み版の寸法（画素。canvas は大きすぎると縮めて描くので、組み版の単位で持つ）
   const page = { w: PAPER.px, h: PAPER.px * PAPER.view, view: PAPER.px * PAPER.view };
@@ -161,6 +170,7 @@ export function createGoodsPaper() {
   const eul = new THREE.Euler();
   const UP = new THREE.Vector3(0, 1, 0);
   let unroll = 0;
+  let time = 0;
 
   function update(dt, { visible, open }) {
     group.visible = visible;
@@ -195,8 +205,13 @@ export function createGoodsPaper() {
     bottomRoll.scale.set(bottom, 1, bottom);
     const py = paper ? paper.position.y : -0.008;
     const pz = paper ? paper.position.z : 0.005;
-    bottomRoll.position.set(0, py - viewH * u, pz + 0.004 + 0.02 * u ** 6);
-    bottomRoll.visible = hidden > 1 || u < 0.995;
+    // 下の端は浮遊ユニットで宙に浮く。噴射の揺らぎに合わせて、ほんのわずかに上下する
+    time += dt;
+    const hover = Math.sin(time * 2.6) * 0.0015 * u;
+    bottomRig.position.set(0, py - viewH * u + hover, pz + 0.004 + 0.02 * u ** 6);
+    if (hidden <= 1) bottomRoll.scale.set(PAPER.rodRadius + 0.003, 1, PAPER.rodRadius + 0.003); // 最後まで広げても、芯に少しだけ巻き残る
+    // 巻いて運ぶ間は弱く、広げるときに強く噴く
+    for (const h of hovers) h.update(time, 0.35 + 0.65 * u);
 
     // 揺れ
     if (dt > 0) {
@@ -274,10 +289,98 @@ export function createGoodsPaper() {
     },
     // ロボットの下に吊るしたときの、マグネットの下から紙の下端までの長さと、紙の幅（m）
     get size() {
-      return { width: PAPER.width + 0.05, depth: -pivot.position.y + PAPER.rollRadius + viewH + 0.02 };
+      return { width: PAPER.width + 0.05, depth: -pivot.position.y + PAPER.rollRadius + viewH + 0.075 }; // 下の浮遊ユニットの分も含める
     },
     get opened() {
       return reveal.value > 0.98;
+    },
+  };
+}
+
+// ---------- 下の端の浮遊ユニット ----------
+
+// 棒の両端の真下に吊るした、手のひらほどの小さな浮遊機。黒い胴、真鍮の帯、回るローター、下へ青く光る噴射口
+const HOVER_COLOR = new THREE.Color('#6fd0ff');
+let hoverGlowTexture;
+function hoverUnit(side, rodLength, metal, brass) {
+  const group = new THREE.Group();
+  group.position.set(side * (rodLength / 2 - 0.014), -0.034, 0);
+  const dark = new THREE.MeshStandardMaterial({ color: '#25272c', metalness: 0.7, roughness: 0.4 });
+  // 胴（縦の短い筒）と、上の丸いふた、真鍮の帯
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.017, 0.026, 24), dark);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.014, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), dark);
+  cap.position.y = 0.013;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.0175, 0.0175, 0.005, 24), brass);
+  band.position.y = -0.004;
+  // 棒を上でつかむ支柱
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.024, 12), metal);
+  arm.position.y = 0.024;
+  const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.0075, 0.0025, 8, 16), brass);
+  clamp.rotation.y = Math.PI / 2;
+  clamp.position.y = 0.034;
+  // 外側の小さな点滅灯
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.0012, 0.0012, 0.012, 8), metal);
+  mast.rotation.z = Math.PI / 2;
+  mast.position.set(side * 0.021, 0.004, 0);
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.0028, 10, 8),
+    new THREE.MeshBasicMaterial({ color: '#ff5a4a' }),
+  );
+  beacon.position.set(side * 0.028, 0.004, 0);
+  // 回るローター（薄く透けた円盤と、2 枚の羽根）
+  const rotor = new THREE.Group();
+  rotor.position.y = 0.019;
+  const blur = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.03, 0.001, 32),
+    new THREE.MeshBasicMaterial({ color: '#c8d4e0', transparent: true, opacity: 0.12, depthWrite: false }),
+  );
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.0012, 0.006), metal);
+  rotor.add(blur, blade);
+  // 噴射口（光る円盤）と、下へ広がる光
+  const nozzleMat = new THREE.MeshBasicMaterial({ color: HOVER_COLOR, transparent: true });
+  const nozzle = new THREE.Mesh(new THREE.CircleGeometry(0.011, 24), nozzleMat);
+  nozzle.rotation.x = Math.PI / 2;
+  nozzle.position.y = -0.0135;
+  if (!hoverGlowTexture) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, 'rgba(230,248,255,1)');
+    r.addColorStop(0.3, 'rgba(110,200,255,0.6)');
+    r.addColorStop(1, 'rgba(40,120,255,0)');
+    g.fillStyle = r;
+    g.fillRect(0, 0, 64, 64);
+    hoverGlowTexture = new THREE.CanvasTexture(c);
+  }
+  const glow = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: hoverGlowTexture, color: HOVER_COLOR, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  glow.position.y = -0.02;
+  glow.scale.set(0.05, 0.05, 1);
+  // 噴射の筋（下へ細く伸びて消える光）
+  const jet = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: hoverGlowTexture, color: HOVER_COLOR, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  jet.position.y = -0.04;
+  jet.scale.set(0.018, 0.06, 1);
+  group.add(body, cap, band, arm, clamp, mast, beacon, rotor, nozzle, glow, jet);
+  group.traverse((o) => o.isMesh && (o.userData.noPick = true));
+  const phase = side * 1.3;
+  return {
+    group,
+    update(t, power) {
+      rotor.rotation.y = t * 38 * side;
+      const flicker = 0.85 + 0.1 * Math.sin(t * 47 + phase) + 0.05 * Math.sin(t * 113 + phase * 2);
+      const a = power * flicker;
+      nozzleMat.opacity = 0.5 + 0.5 * a;
+      glow.material.opacity = a;
+      glow.scale.setScalar(0.035 + 0.03 * a);
+      jet.material.opacity = 0.7 * a;
+      jet.scale.set(0.016, 0.03 + 0.05 * a, 1);
+      jet.position.y = -0.02 - (0.015 + 0.025 * a);
+      // てっぺんの灯は 1 秒に 1 回ほど点く
+      beacon.visible = (t + phase) % 1.1 < 0.12;
     },
   };
 }
@@ -415,18 +518,18 @@ function layout(ctx, goods, images, W, paint) {
   line(W / 2 - 200, y + 12, W / 2 + 210, { width: 2 });
   y += 62;
   const items = goods.items ?? [];
-  text(`merchandise list — ${String(items.length).padStart(2, '0')} items`, W / 2, y, `500 34px ${FONT.hand}`, { align: 'center' });
+  text(`merchandise list — ${String(items.length).padStart(2, '0')} items`, W / 2, y, `500 40px ${FONT.hand}`, { align: 'center' });
   y += 58;
 
   // はじめの文章
   const intro = String(goods.body ?? '').trim();
   if (intro) {
-    const font = `400 32px ${FONT.jp}`;
+    const font = `400 38px ${FONT.jp}`;
     ctx.font = font;
     for (const para of intro.split(/\n/)) {
       for (const l of wrap(ctx, para, W - M * 2)) {
         text(l, M, y, font);
-        y += 52;
+        y += 60;
       }
     }
     y += 18;
@@ -495,32 +598,32 @@ function layout(ctx, goods, images, W, paint) {
     const status = String(it.status ?? '').trim();
     if (status && paint) stamp(ctx, status, x + colW - 10, top + imgH - 40, index);
 
-    let ty = top + imgH + 56;
-    const nameFont = `400 42px ${FONT.jp}`;
+    let ty = top + imgH + 62;
+    const nameFont = `400 50px ${FONT.jp}`;
     ctx.font = nameFont;
     for (const l of wrap(ctx, String(it.name ?? ''), colW)) {
       text(l, x, ty, nameFont);
-      ty += 50;
+      ty += 58;
     }
     if (it.price) {
-      text(String(it.price), x, ty + 4, `700 46px ${FONT.hand}`);
-      ty += 54;
+      text(String(it.price), x, ty + 6, `700 56px ${FONT.hand}`);
+      ty += 62;
     }
     const note = String(it.note ?? '').trim();
     if (note) {
-      const noteFont = `400 27px ${FONT.jp}`;
+      const noteFont = `400 33px ${FONT.jp}`;
       ctx.font = noteFont;
       for (const para of note.split(/\n/)) {
         for (const l of wrap(ctx, para, colW)) {
           text(l, x, ty + 2, noteFont, { color: 'rgba(43, 38, 32, 0.85)' });
-          ty += 40;
+          ty += 46;
         }
       }
     }
     if (it.url) {
       ty += 12;
       const label = 'online store →';
-      const font = `700 38px ${FONT.hand}`;
+      const font = `700 44px ${FONT.hand}`;
       text(label, x, ty + 6, font, { color: '#2b3f6b' });
       if (paint) {
         ctx.font = font;
@@ -551,7 +654,7 @@ function layout(ctx, goods, images, W, paint) {
   y += 20;
   line(M, y, W - M, { width: 2.5 });
   y += 56;
-  text('* 価格・在庫は変わることがあります。', M, y, `400 26px ${FONT.jp}`, { color: 'rgba(43, 38, 32, 0.8)' });
+  text('* 価格・在庫は変わることがあります。', M, y, `400 30px ${FONT.jp}`, { color: 'rgba(43, 38, 32, 0.8)' });
   text('tap outside to close', W - M, y, `500 30px ${FONT.hand}`, { color: 'rgba(43, 38, 32, 0.6)', align: 'right' });
   y += 90;
   return { height: Math.ceil(y), regions };
