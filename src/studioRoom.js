@@ -641,8 +641,15 @@ const FURNITURE = [
   // モデルは奥の脚が長いので、手前へ 11° 傾けて、手前の辺と奥の脚の両方を床に付ける。
   // 縦長の画面では、タワーに立てかけた HB の前に置く
   {
-    url: 'models/pedalboard.glb', x: -2.5, z: -7.8, rotationY: Math.PI / 2 - 0.5, rotationX: 0.19, width: 0.6, mirror: { height: 0.15, strength: 0.3 },
+    url: 'models/pedalboard.glb', x: -2.5, z: -7.8, rotationY: Math.PI / 2 - 0.5, rotationX: 0.19, width: 0.6, sink: 0.02,
+    mirror: { height: 0.15, strength: 0.3 },
     narrow: { x: -1.8, z: -7.3, rotationY: 0.8 },
+  },
+  // エフェクターボードの奥の床に置いたワウペダル（白い生成モデル。モデルの +z がかかと側）
+  {
+    url: 'models/wah.glb', x: -2.25, z: -8.5, rotationY: Math.PI / 2 - 0.3, width: 0.11, sink: 0.002,
+    mirror: { height: 0.08, strength: 0.3 },
+    narrow: { x: -1.52, z: -7.75, rotationY: 0.6 },
   },
   // 右奥のブラウン管のタワー（キーボードの奥）の、いちばん下の段に立てかけたベース（白いジャズベースの生成モデル）。
   // Gretsch とは向きを変え、左へ大きく振って、少しひねって立てかける
@@ -735,7 +742,8 @@ function place(model, item) {
   model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, item.rotationZ ?? 0, 'YXZ');
   model.updateMatrixWorld(true);
   const box = modelBox(model);
-  model.position.set(item.x, (item.wall?.y ?? 0) - box.min.y, item.z);
+  // sink: 床に少し沈める（m）。脚やケーブルだけで接地して、本体が浮いて見える物向け
+  model.position.set(item.x, (item.wall?.y ?? 0) - box.min.y - (item.sink ?? 0), item.z);
 
   const group = new THREE.Group();
   group.add(model);
