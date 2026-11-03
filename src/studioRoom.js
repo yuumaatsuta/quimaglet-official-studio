@@ -601,6 +601,7 @@ function applyWorldUV(geo, offset, fn) {
 //     rotationX: 前後の傾き（負で後ろが下がる）
 //     天面が平らでない物（ブラウン管の後ろの斜面など）は、Blender で接地する傾き・ずれを計算して指定する
 //   float: 床に置かず、この高さ（中心, m）に浮かせてゆっくり漂わせる
+//   wall: { y } 床に置かず壁に掛ける（下端の高さ y。ネックの上の方に壁のハンガーを付ける）
 //   mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（src/floorMirror.js）
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
 const FURNITURE = [
@@ -625,9 +626,11 @@ const FURNITURE = [
   // 左奥のブラウン管のタワーに立てかけたギター（Gretsch の生成モデル。ピックガードのでっぱりは平らにしてある）。
   // 正面（+z）を部屋の手前へ向け、後ろへ傾けて、いちばん下の段のブラウン管にもたせかける
   {
-    url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.31, width: 0.41,
+    url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
   },
+  // 左の壁、升目の棚の上に掛けたギター（HB の生成モデル）。正面を部屋へ向け、ヘッドの下を壁のハンガーで支える
+  { url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.3, rotationY: Math.PI / 2, width: 0.36, wall: { y: 2.55 } },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
 ];
@@ -655,16 +658,20 @@ async function loadFurniture(manager) {
       model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, 0, 'YXZ');
       model.updateMatrixWorld(true);
       const box = modelBox(model);
-      model.position.set(item.x, -box.min.y, item.z);
+      model.position.set(item.x, (item.wall?.y ?? 0) - box.min.y, item.z);
 
       const group = new THREE.Group();
       group.add(model);
+      if (item.wall) {
+        model.updateMatrixWorld(true);
+        group.add(wallHanger(modelBox(model)));
+      }
       // mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（背の低い、角張った物向け）
       if (item.mirror) {
         model.updateMatrixWorld(true);
         const placed = modelBox(model);
         group.add(footprintShadow(placed), floorMirror(model, placed, item.mirror === true ? {} : item.mirror));
-      } else if (!item.on) {
+      } else if (!item.on && !item.wall) {
         // 上に載せる物は、床用の接地影を付けない（下の家具の中に埋もれる）
         const center = box.getCenter(new THREE.Vector3());
         group.add(contactShadow(box, item.x + center.x, item.z + center.z));
@@ -688,6 +695,35 @@ async function loadFurniture(manager) {
     groups[i].position.set(a.x - b.x, below.max.y - box.min.y + (off.y ?? 0), a.z - b.z + (off.z ?? 0));
   });
   return groups;
+}
+
+// 壁のギターハンガー：黒い小さな台座と、ネックを両側から受ける 2 本の腕（左の壁、x = -W / 2 に付ける）。
+// ヘッドの付け根（ギターの上から 2 割弱の所）の高さに置く
+function wallHanger(box) {
+  const g = new THREE.Group();
+  const black = new THREE.MeshStandardMaterial({ color: '#16171a', metalness: 0.6, roughness: 0.45 });
+  const rubber = new THREE.MeshStandardMaterial({ color: '#2a2a2a', roughness: 0.9 });
+  const y = box.max.y - (box.max.y - box.min.y) * 0.19;
+  const z = (box.min.z + box.max.z) / 2;
+  const x0 = -W / 2;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.06, 0.09), black);
+  plate.position.set(x0 + 0.006, y - 0.01, z);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.06, 12), black);
+  stem.rotation.z = Math.PI / 2;
+  stem.position.set(x0 + 0.04, y - 0.015, z);
+  g.add(plate, stem);
+  for (const s of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.07, 10), rubber);
+    arm.rotation.z = Math.PI / 2 - 0.25;
+    arm.position.set(x0 + 0.075, y - 0.008, z + s * 0.026);
+    g.add(arm);
+  }
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+  });
+  return g;
 }
 
 // モデルの外形。頂点から正確に測る（傾けた物は、標準の測り方だと箱が膨らんで浮く）。
