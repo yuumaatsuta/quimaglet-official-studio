@@ -628,9 +628,15 @@ const FURNITURE = [
   {
     url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
+    // 生成モデルの金属っぽさが強く、ボディがぎらつくので抑える
+    tone: { metalness: 0.35, envMapIntensity: 0.55 },
   },
-  // 左の壁、コンクリートの棚の下に掛けたギター（HB の生成モデル）。正面を部屋へ向け、ヘッドの下を壁のハンガーで支える
-  { url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 } },
+  // 左の壁、コンクリートの棚の下に掛けたギター（HB の生成モデル）。正面を部屋へ向け、ヘッドの下を壁のハンガーで支える。
+  // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
+  {
+    url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
+    narrow: { x: -1.95, z: -7.9, rotationY: 0.4, rotationX: -0.24, rotationZ: -0.05, wall: null, mirror: { height: 0.3, strength: 0.3 } },
+  },
   // 右奥のブラウン管のタワー（キーボードの奥）の、いちばん下の段に立てかけたベース（白いジャズベースの生成モデル）。
   // Gretsch とは向きを変え、左へ大きく振って、少しひねって立てかける
   {
@@ -653,6 +659,7 @@ async function loadFurniture(manager) {
         obj.castShadow = true;
         obj.receiveShadow = true;
         if (item.fabric) obj.material = fabricMaterial(obj.material, item.fabric);
+        if (item.tone) Object.assign(obj.material, item.tone);
       });
       if (item.screen) addCrtScreen(model, item.screen);
       // 幅を実寸に合わせ、床（y = 0）に接地させる
@@ -660,33 +667,21 @@ async function loadFurniture(manager) {
       model.scale.setScalar(item.width / size.x);
       if (item.wander) return robotWander(model, item);
       if (item.float) return floating(model, item);
-      // 先に前後へ傾け（x）、それから向きを変える（y）。立てかける物が、向けた方へ傾くように
-      model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, item.rotationZ ?? 0, 'YXZ');
-      model.updateMatrixWorld(true);
-      const box = modelBox(model);
-      model.position.set(item.x, (item.wall?.y ?? 0) - box.min.y, item.z);
-
-      const group = new THREE.Group();
-      group.add(model);
-      if (item.wall) {
-        model.updateMatrixWorld(true);
-        group.add(wallHanger(modelBox(model)));
-      }
-      // mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（背の低い、角張った物向け）
-      if (item.mirror) {
-        model.updateMatrixWorld(true);
-        const placed = modelBox(model);
-        group.add(footprintShadow(placed), floorMirror(model, placed, item.mirror === true ? {} : item.mirror));
-      } else if (!item.on && !item.wall) {
-        // 上に載せる物は、床用の接地影を付けない（下の家具の中に埋もれる）
-        const center = box.getCenter(new THREE.Vector3());
-        group.add(contactShadow(box, item.x + center.x, item.z + center.z));
-      }
-      if (item.focus) group.userData.focus = item.focus;
-      // 置いた後の位置で測り直す（box は動かす前の座標）。on で上に載せるときに使う
-      model.updateMatrixWorld(true);
-      group.userData.box = modelBox(model);
-      return group;
+      if (!item.narrow) return place(model, item);
+      // narrow: 縦長の画面では別の置き方にする。両方の置き方を作っておき、画面の縦横比で切り替える
+      const wide = place(model, item);
+      const tall = place(model.clone(), { ...item, ...item.narrow });
+      const both = new THREE.Group();
+      both.add(wide, tall);
+      both.userData.box = wide.userData.box;
+      const fit = () => {
+        const isTall = innerWidth / innerHeight < NARROW_ASPECT;
+        wide.visible = !isTall;
+        tall.visible = isTall;
+      };
+      fit();
+      addEventListener('resize', fit);
+      return both;
     }),
   );
   // on: 下の家具の上に載せ、中心を揃える
@@ -701,6 +696,40 @@ async function loadFurniture(manager) {
     groups[i].position.set(a.x - b.x, below.max.y - box.min.y + (off.y ?? 0), a.z - b.z + (off.z ?? 0));
   });
   return groups;
+}
+
+// この縦横比（横 / 縦）より縦長の画面では、FURNITURE の narrow の置き方を使う
+const NARROW_ASPECT = 0.8;
+
+// 大きさを合わせた家具を、傾け・向きを変えて床（または壁）に置き、影や映り込みを付ける
+function place(model, item) {
+  // 先に前後へ傾け（x）、それから向きを変える（y）。立てかける物が、向けた方へ傾くように
+  model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, item.rotationZ ?? 0, 'YXZ');
+  model.updateMatrixWorld(true);
+  const box = modelBox(model);
+  model.position.set(item.x, (item.wall?.y ?? 0) - box.min.y, item.z);
+
+  const group = new THREE.Group();
+  group.add(model);
+  if (item.wall) {
+    model.updateMatrixWorld(true);
+    group.add(wallHanger(modelBox(model)));
+  }
+  // mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（背の低い、角張った物向け）
+  if (item.mirror) {
+    model.updateMatrixWorld(true);
+    const placed = modelBox(model);
+    group.add(footprintShadow(placed), floorMirror(model, placed, item.mirror === true ? {} : item.mirror));
+  } else if (!item.on && !item.wall) {
+    // 上に載せる物は、床用の接地影を付けない（下の家具の中に埋もれる）
+    const center = box.getCenter(new THREE.Vector3());
+    group.add(contactShadow(box, item.x + center.x, item.z + center.z));
+  }
+  if (item.focus) group.userData.focus = item.focus;
+  // 置いた後の位置で測り直す（box は動かす前の座標）。on で上に載せるときに使う
+  model.updateMatrixWorld(true);
+  group.userData.box = modelBox(model);
+  return group;
 }
 
 // 壁のギターハンガー：黒い小さな台座と、ネックを両側から受ける 2 本の腕（左の壁、x = -W / 2 に付ける）。
