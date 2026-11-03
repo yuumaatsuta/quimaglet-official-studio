@@ -622,6 +622,12 @@ const FURNITURE = [
   // 右奥のブラウン管のタワーの前の床に置いたキーボード（Roland FANTOM の生成モデル）。
   // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
   { url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true },
+  // 左奥のブラウン管のタワーに立てかけたギター（Gretsch の生成モデル。ピックガードのでっぱりは平らにしてある）。
+  // 正面（+z）を部屋の手前へ向け、後ろへ傾けて、いちばん下の段のブラウン管にもたせかける
+  {
+    url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.31, width: 0.41,
+    mirror: { height: 0.3, strength: 0.3 },
+  },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
 ];
@@ -645,7 +651,8 @@ async function loadFurniture(manager) {
       model.scale.setScalar(item.width / size.x);
       if (item.wander) return robotWander(model, item);
       if (item.float) return floating(model, item);
-      model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, 0);
+      // 先に前後へ傾け（x）、それから向きを変える（y）。立てかける物が、向けた方へ傾くように
+      model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, 0, 'YXZ');
       model.updateMatrixWorld(true);
       const box = modelBox(model);
       model.position.set(item.x, -box.min.y, item.z);
@@ -656,7 +663,7 @@ async function loadFurniture(manager) {
       if (item.mirror) {
         model.updateMatrixWorld(true);
         const placed = modelBox(model);
-        group.add(footprintShadow(placed), floorMirror(model, placed));
+        group.add(footprintShadow(placed), floorMirror(model, placed, item.mirror === true ? {} : item.mirror));
       } else if (!item.on) {
         // 上に載せる物は、床用の接地影を付けない（下の家具の中に埋もれる）
         const center = box.getCenter(new THREE.Vector3());
