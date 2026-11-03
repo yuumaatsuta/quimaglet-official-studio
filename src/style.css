@@ -694,3 +694,59 @@ body.is-about .hero {
   margin: 0.2em 0 0.4em;
   font-size: 1.05em;
 }
+
+/* ---------- Goods（グッズの展開状況。content.js の goodsItem） ---------- */
+.goods-list {
+  list-style: none;
+  margin: 1.2em 0 0;
+  padding: 0 !important;
+  display: grid;
+  gap: 14px;
+}
+.goods-item {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.goods-image {
+  flex: none;
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.goods-image.is-empty {
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.06) 0 6px, transparent 6px 12px),
+    rgba(255, 255, 255, 0.05);
+}
+.goods-text {
+  min-width: 0;
+}
+.goods-text h3 {
+  margin: 0.3em 0 0.1em;
+  font-size: 1.02em;
+}
+.goods-text p {
+  margin: 0.2em 0 0;
+}
+.goods-price {
+  opacity: 0.85;
+}
+.goods-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.78em;
+  letter-spacing: 0.06em;
+  border: 1px solid currentColor;
+}
+.goods-status.is-on { color: #8ff0c0; }
+.goods-status.is-pre { color: #9fd0ff; }
+.goods-status.is-soon { color: #f5d98a; }
+.goods-status.is-sold { color: #ff9a9a; opacity: 0.85; }

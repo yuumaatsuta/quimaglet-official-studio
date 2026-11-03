@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { SECTIONS } from './content.js';
 
-// 奥の壁にペンキで落書きしたメニュー（About / Works / News / Contact）。
+// 奥の壁にペンキで落書きしたメニュー（About / Works / News / Goods / Contact）。
 // 1 語ずつ板にして壁にぴったり貼り、hotspot（押すとそのページ）にする。
 // 文字は canvas に描く：1 文字ずつ傾き・高さ・大きさを揺らし、吹き付けのにじみ・塗りムラ・飛沫・垂れ、
 // 語ごとの添え書き（下線・星・丸囲み・矢印）で、別々の人が別々の時に描いたような不揃いさを出す
@@ -28,7 +28,8 @@ const WORDS = [
   { id: 'about', x: -1.6, y: 4.72, scale: 1.18, rot: -0.16, skew: -0.12, jitter: 0.6, deco: 'underline', drips: 1.2 },
   { id: 'works', x: 0.3, y: 4.9, scale: 0.92, rot: 0.13, skew: 0.18, jitter: 1.0, deco: 'star', drips: 0.6 },
   { id: 'news', x: -1.35, y: 4.06, scale: 1.12, rot: 0.2, skew: 0.05, jitter: 0.8, deco: 'ring', drips: 0.9 },
-  { id: 'contact', x: 0.02, y: 3.7, scale: 1.05, rot: -0.09, skew: -0.2, jitter: 0.5, deco: 'arrow', drips: 1.5 },
+  { id: 'goods', x: 0.4, y: 4.3, scale: 1.0, rot: -0.07, skew: 0.12, jitter: 0.7, deco: 'none', drips: 0.8 },
+  { id: 'contact', x: -0.2, y: 3.5, scale: 1.05, rot: -0.09, skew: -0.2, jitter: 0.5, deco: 'arrow', drips: 1.5 },
 ];
 
 export async function buildWallMenu({ wallZ, seed = 23 }) {

@@ -7,6 +7,7 @@ export const SECTIONS = {
   about: { label: 'About', kicker: 'Bookshelf', title: 'About', body: '' },
   works: { label: 'Works', kicker: 'Desk', title: 'Works', body: '<p>ここに制作実績が入ります。</p>' },
   news: { label: 'News', kicker: 'Poster', title: 'News', body: '<p>ここにお知らせが入ります。</p>' },
+  goods: { label: 'Goods', kicker: 'Merch', title: 'Goods', body: '<p>グッズの情報はここに入ります。</p>' },
   contact: { label: 'Contact', kicker: 'Telephone', title: 'Contact', body: '<p>お問い合わせはこちらから。</p>' },
 };
 
@@ -55,6 +56,12 @@ export function applyContent(data) {
     ABOUT.fill = (pages.about.fill ?? []).filter((w) => String(w).trim());
     SECTIONS.about.body = textToHtml(ABOUT.main);
   }
+  if (pages.goods) {
+    const g = pages.goods;
+    if (g.title) SECTIONS.goods.title = g.title;
+    const items = (g.items ?? []).filter((it) => it.name);
+    SECTIONS.goods.body = textToHtml(g.body ?? '') + (items.length ? `<ul class="goods-list">${items.map(goodsItem).join('')}</ul>` : '');
+  }
   const news = (data?.news ?? []).filter((n) => n.title || n.body);
   if (news.length) {
     SECTIONS.news.body = news
@@ -68,6 +75,21 @@ export function applyContent(data) {
       image: latest.image || null,
     });
   }
+}
+
+// グッズ 1 点。status は「販売中」「予約受付中」「準備中」「売り切れ」など自由に書ける（色は言葉で決める）
+const GOODS_STATUS = [
+  [/売り切れ|完売|sold/i, 'is-sold'],
+  [/準備|近日|予定|soon/i, 'is-soon'],
+  [/予約/, 'is-pre'],
+];
+function goodsItem(it) {
+  const status = String(it.status ?? '').trim();
+  const cls = GOODS_STATUS.find(([re]) => re.test(status))?.[1] ?? 'is-on';
+  const img = it.image ? `<img class="goods-image" src="${escapeHtml(it.image)}" alt="" loading="lazy" />` : '<div class="goods-image is-empty" aria-hidden="true"></div>';
+  const name = escapeHtml(it.name);
+  const title = it.url ? `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">${name}</a>` : name;
+  return `<li class="goods-item">${img}<div class="goods-text">${status ? `<span class="goods-status ${cls}">${escapeHtml(status)}</span>` : ''}<h3>${title}</h3>${it.price ? `<p class="goods-price">${escapeHtml(it.price)}</p>` : ''}${it.note ? textToHtml(it.note) : ''}</div></li>`;
 }
 
 // 管理画面で書くのはふつうの文章。空行で段落、改行はそのまま、URL とメールアドレスはリンクにする
