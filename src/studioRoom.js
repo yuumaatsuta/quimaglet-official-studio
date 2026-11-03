@@ -629,8 +629,14 @@ const FURNITURE = [
     url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
   },
-  // 左の壁、升目の棚の上に掛けたギター（HB の生成モデル）。正面を部屋へ向け、ヘッドの下を壁のハンガーで支える
-  { url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.3, rotationY: Math.PI / 2, width: 0.36, wall: { y: 2.55 } },
+  // 左の壁、コンクリートの棚の下に掛けたギター（HB の生成モデル）。正面を部屋へ向け、ヘッドの下を壁のハンガーで支える
+  { url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.3, rotationY: Math.PI / 2, width: 0.36, wall: { y: 0.41 } },
+  // 右奥のブラウン管のタワー（キーボードの奥）の、いちばん下の段に立てかけたベース（白いジャズベースの生成モデル）。
+  // Gretsch とは向きを変え、左へ大きく振って、少しひねって立てかける
+  {
+    url: 'models/bass-white.glb', x: 1.7, z: -8.36, rotationY: -0.75, rotationX: -0.33, rotationZ: 0.05, width: 0.378,
+    mirror: { height: 0.3, strength: 0.3 },
+  },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
 ];
@@ -655,7 +661,7 @@ async function loadFurniture(manager) {
       if (item.wander) return robotWander(model, item);
       if (item.float) return floating(model, item);
       // 先に前後へ傾け（x）、それから向きを変える（y）。立てかける物が、向けた方へ傾くように
-      model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, 0, 'YXZ');
+      model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, item.rotationZ ?? 0, 'YXZ');
       model.updateMatrixWorld(true);
       const box = modelBox(model);
       model.position.set(item.x, (item.wall?.y ?? 0) - box.min.y, item.z);
