@@ -470,8 +470,10 @@ function hitMoon(x, y) {
   return robotRay.intersectObjects(sky.hitTargets, true).length > 0;
 }
 
+let goodsAtDown = false; // 押し始めたときに Goods の紙が出ていたか（Goods を開いたその押し上げで閉じないように）
 addEventListener('pointerdown', (e) => {
   robotDown = e.target.tagName === 'CANVAS' ? { x: e.clientX, y: e.clientY } : null;
+  goodsAtDown = goods.open;
 });
 addEventListener('pointerup', (e) => {
   if (!robotDown) return;
@@ -479,6 +481,7 @@ addEventListener('pointerup', (e) => {
   robotDown = null;
   if (moved > 8) return;
   if (goods.open) {
+    if (!goodsAtDown) return; // 壁の GOODS を押して開いた、その押し上げ
     // 紙の中ならリンクだけ、ロボットなら跳ねる、それ以外（紙の外）を押したら閉じる
     const hit = hitGoodsPaper(e.clientX, e.clientY);
     if (hit) {

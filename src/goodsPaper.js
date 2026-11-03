@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 // Goods を選んだときに、ロボットが持ってくる紙のメニュー。
-// ロボットの底のマグネットに、紙の上端を巻き付けた金属の棒がくっついている。
+// ロボットの底のマグネット（robot.glb の底の中央）に、紙の上端を巻き付けた金属の棒がくっついている。
 // 紙は少し古びた色で、タイプライターの字と明朝体で組む。近くに来ると下へ巻物のように広がる。
 // 中身は content.js の GOODS（管理画面 /admin/ の Goods）
 
@@ -10,9 +10,9 @@ const PAPER = {
   px: 1100, // 紙の横の画素数
   rodRadius: 0.0065,
   rollRadius: 0.012, // 棒に巻き付けた紙の太さ
-  magnet: { radius: 0.03, height: 0.028 },
   unrollSeconds: 0.9,
 };
+const SWAY_MAX = 0.2; // 揺れの最大（rad）
 
 const FONT = {
   type: '"Special Elite", "Courier New", monospace', // タイプライター（index.html で読む）
@@ -27,22 +27,13 @@ const STAMP = [
 const STAMP_ON = '#2f6b3a';
 
 export function createGoodsPaper() {
-  const group = new THREE.Group(); // ロボットの底に付ける（マグネットの上面が原点）
+  const group = new THREE.Group(); // ロボットの底のマグネットに付ける（マグネットの一番下が原点）
   const metal = new THREE.MeshStandardMaterial({ color: '#c9ccd2', metalness: 1, roughness: 0.3 });
   const brass = new THREE.MeshStandardMaterial({ color: '#b08a4a', metalness: 1, roughness: 0.35 });
-  const magnetMat = new THREE.MeshStandardMaterial({ color: '#1d1f24', metalness: 0.5, roughness: 0.45 });
 
-  // マグネット：黒い円盤と、下の銀の当て板
-  const mg = PAPER.magnet;
-  const magnet = new THREE.Mesh(new THREE.CylinderGeometry(mg.radius, mg.radius * 1.04, mg.height, 32), magnetMat);
-  magnet.position.y = -mg.height / 2;
-  const plate = new THREE.Mesh(new THREE.CylinderGeometry(mg.radius * 1.06, mg.radius * 1.06, 0.005, 32), metal);
-  plate.position.y = -mg.height - 0.0025;
-  group.add(magnet, plate);
-
-  // 揺れの支点（棒の中心）。紙と棒はこの下で揺れる
+  // 揺れの支点（棒の中心）。棒の上の面がマグネットに触れる。紙と棒はこの下で揺れる
   const pivot = new THREE.Group();
-  pivot.position.y = -mg.height - 0.005 - PAPER.rodRadius;
+  pivot.position.y = -PAPER.rodRadius;
   group.add(pivot);
 
   const rodLength = PAPER.width + 0.05;
@@ -138,6 +129,11 @@ export function createGoodsPaper() {
   // 揺れ（棒を支点にした振り子）。ロボットの動きの加速度で揺れ、だんだん収まる
   const sway = { x: 0, z: 0, vx: 0, vz: 0, prev: null, vel: new THREE.Vector3(), first: true };
   const wp = new THREE.Vector3();
+  const qParent = new THREE.Quaternion();
+  const qWant = new THREE.Quaternion();
+  const qSway = new THREE.Quaternion();
+  const eul = new THREE.Euler();
+  const UP = new THREE.Vector3(0, 1, 0);
   const lv = new THREE.Vector3();
   let unroll = 0;
 
@@ -149,7 +145,9 @@ export function createGoodsPaper() {
       return;
     }
     // 着いたら下へ広げ、離れるときは巻き上げる
-    const target = open ? 1 : 0;
+    // 広げ始めるのは、着いて揺れが収まってから
+    const settled = Math.abs(sway.x) + Math.abs(sway.z) < 0.05;
+    const target = open && (unroll > 0 || settled) ? 1 : 0;
     const step = dt / PAPER.unrollSeconds;
     unroll = target > unroll ? Math.min(target, unroll + step) : Math.max(target, unroll - step * 1.4);
     const u = unroll * unroll * (3 - 2 * unroll);
@@ -165,28 +163,38 @@ export function createGoodsPaper() {
       if (sway.first) {
         sway.prev = wp.clone();
         sway.vel.set(0, 0, 0);
+        sway.ax = sway.az = 0;
+        sway.x = sway.z = sway.vx = sway.vz = 0;
         sway.first = false;
       }
       lv.copy(wp).sub(sway.prev).divideScalar(dt);
-      const ax = (lv.x - sway.vel.x) / dt;
-      const az = (lv.z - sway.vel.z) / dt;
+      // 加速度。コマごとのばらつきで暴れないよう、なめらかにする
+      const blend = 1 - Math.exp(-dt * 10);
+      sway.ax = (sway.ax ?? 0) + ((lv.x - sway.vel.x) / dt - (sway.ax ?? 0)) * blend;
+      sway.az = (sway.az ?? 0) + ((lv.z - sway.vel.z) / dt - (sway.az ?? 0)) * blend;
+      const ax = sway.ax;
+      const az = sway.az;
       sway.vel.copy(lv);
       sway.prev.copy(wp);
       const len = 0.06 + paperH * 0.5 * Math.max(0.2, u); // 振り子の長さ（広げるほど長く、ゆっくり）
       const k = 9.8 / len;
-      const damping = 2.4;
-      const fx = THREE.MathUtils.clamp(ax, -6, 6) / len;
-      const fz = THREE.MathUtils.clamp(az, -6, 6) / len;
+      const damping = 4.5;
+      const fx = THREE.MathUtils.clamp(ax, -1.6, 1.6) / len;
+      const fz = THREE.MathUtils.clamp(az, -1.6, 1.6) / len;
       // 加速した向きと反対へ振れる（引っ張られて遅れる）。コマ落ちしても暴れないよう細かく刻んで解く
       const n = Math.ceil(dt / (1 / 120));
       const h = dt / n;
       for (let i = 0; i < n; i++) {
         sway.vz += (-k * sway.z - damping * sway.vz + fx) * h;
         sway.vx += (-k * sway.x - damping * sway.vx - fz) * h;
-        sway.z = THREE.MathUtils.clamp(sway.z + sway.vz * h, -0.5, 0.5);
-        sway.x = THREE.MathUtils.clamp(sway.x + sway.vx * h, -0.5, 0.5);
+        sway.z = THREE.MathUtils.clamp(sway.z + sway.vz * h, -SWAY_MAX, SWAY_MAX);
+        sway.x = THREE.MathUtils.clamp(sway.x + sway.vx * h, -SWAY_MAX, SWAY_MAX);
       }
-      pivot.rotation.set(sway.x, 0, sway.z);
+      // ロボットが首を傾けても、紙は鉛直に吊り下がる（向きは左右の向きだけ追う）
+      group.parent?.getWorldQuaternion(qParent);
+      eul.setFromQuaternion(qParent, 'YXZ');
+      qWant.setFromAxisAngle(UP, eul.y).multiply(qSway.setFromEuler(eul.set(sway.x, 0, sway.z)));
+      pivot.quaternion.copy(qParent.invert()).multiply(qWant);
     }
   }
 
