@@ -617,6 +617,9 @@ const FURNITURE = [
     url: 'models/helmet.glb', on: 'models/crt.glb', x: 0, z: 0, rotationY: 0, width: 0.38,
     rotationX: -0.384, onOffset: { y: -0.0576, z: 0.01 },
   },
+  // 右奥のブラウン管のタワーの前の床に置いたキーボード（Roland FANTOM の生成モデル）。
+  // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
+  { url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25 },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
 ];
