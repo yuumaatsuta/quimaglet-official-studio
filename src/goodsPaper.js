@@ -299,7 +299,7 @@ export function createGoodsPaper() {
 
 // ---------- 下の端の浮遊ユニット ----------
 
-// 棒の両端の真下に吊るした、手のひらほどの小さな浮遊機。黒い胴、真鍮の帯、回るローター、下へ青く光る噴射口
+// 棒の両端の真下に吊るした、手のひらほどの小さな浮遊機。黒い胴、真鍮の帯、下へ青く光る噴射口（噴射だけで浮く）
 const HOVER_COLOR = new THREE.Color('#6fd0ff');
 let hoverGlowTexture;
 function hoverUnit(side, rodLength, metal, brass) {
@@ -327,15 +327,6 @@ function hoverUnit(side, rodLength, metal, brass) {
     new THREE.MeshBasicMaterial({ color: '#ff5a4a' }),
   );
   beacon.position.set(side * 0.028, 0.004, 0);
-  // 回るローター（薄く透けた円盤と、2 枚の羽根）
-  const rotor = new THREE.Group();
-  rotor.position.y = 0.019;
-  const blur = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.03, 0.03, 0.001, 32),
-    new THREE.MeshBasicMaterial({ color: '#c8d4e0', transparent: true, opacity: 0.12, depthWrite: false }),
-  );
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.0012, 0.006), metal);
-  rotor.add(blur, blade);
   // 噴射口（光る円盤）と、下へ広がる光
   const nozzleMat = new THREE.MeshBasicMaterial({ color: HOVER_COLOR, transparent: true });
   const nozzle = new THREE.Mesh(new THREE.CircleGeometry(0.011, 24), nozzleMat);
@@ -364,13 +355,12 @@ function hoverUnit(side, rodLength, metal, brass) {
   );
   jet.position.y = -0.04;
   jet.scale.set(0.018, 0.06, 1);
-  group.add(body, cap, band, arm, clamp, mast, beacon, rotor, nozzle, glow, jet);
+  group.add(body, cap, band, arm, clamp, mast, beacon, nozzle, glow, jet);
   group.traverse((o) => o.isMesh && (o.userData.noPick = true));
   const phase = side * 1.3;
   return {
     group,
     update(t, power) {
-      rotor.rotation.y = t * 38 * side;
       const flicker = 0.85 + 0.1 * Math.sin(t * 47 + phase) + 0.05 * Math.sin(t * 113 + phase * 2);
       const a = power * flicker;
       nozzleMat.opacity = 0.5 + 0.5 * a;
