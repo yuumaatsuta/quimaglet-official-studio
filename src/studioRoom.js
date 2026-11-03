@@ -635,7 +635,7 @@ const FURNITURE = [
   // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
   {
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
-    narrow: { x: -1.95, z: -7.9, rotationY: 0.4, rotationX: -0.24, rotationZ: -0.05, wall: null, mirror: { height: 0.3, strength: 0.3 } },
+    narrow: { x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 } },
   },
   // 右奥のブラウン管のタワー（キーボードの奥）の、いちばん下の段に立てかけたベース（白いジャズベースの生成モデル）。
   // Gretsch とは向きを変え、左へ大きく振って、少しひねって立てかける
@@ -704,6 +704,8 @@ const NARROW_ASPECT = 0.8;
 // 大きさを合わせた家具を、傾け・向きを変えて床（または壁）に置き、影や映り込みを付ける
 function place(model, item) {
   // 先に前後へ傾け（x）、それから向きを変える（y）。立てかける物が、向けた方へ傾くように
+  // 位置は原点に戻してから測る（narrow 用に、置いた後のモデルを複製して渡すことがある）
+  model.position.set(0, 0, 0);
   model.rotation.set(item.rotationX ?? 0, item.rotationY ?? 0, item.rotationZ ?? 0, 'YXZ');
   model.updateMatrixWorld(true);
   const box = modelBox(model);
