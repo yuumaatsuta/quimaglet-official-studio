@@ -1,19 +1,21 @@
 import * as THREE from 'three';
+import { createCity } from './cityScape.js';
 
 // 窓の外の空・景色・雨・雪・稲光と、天気に合わせた室内の光。
 // set() で目標の天気を渡すと、数秒かけてなめらかに移り変わる。
 //
 // rig（部屋側が用意するもの）:
 //   lights: { sun, sky, hemi, lamp }  lampMaterial: 蛍光灯のマテリアル
-//   landTexture: 空を透明にした景色  horizonY: 水平線の高さ
+//   horizonY: 水平線の高さ
 //   outside: { x0, x1, z0, z1 }  雨や雪を降らせる範囲（窓の外）
 export function createWeather({ scene, renderer, rig, initial, onSettled }) {
-  const NUM_KEYS = ['sun', 'sky', 'hemi', 'cloudCover', 'fog', 'rain', 'snow', 'thunder', 'lamp', 'exposure'];
-  const COLOR_KEYS = ['sunColor', 'skyColor', 'skyTop', 'skyHorizon', 'cloudColor', 'land'];
+  const NUM_KEYS = ['sun', 'sky', 'hemi', 'cloudCover', 'fog', 'rain', 'snow', 'thunder', 'lamp', 'exposure', 'nightness'];
+  const COLOR_KEYS = ['sunColor', 'skyColor', 'skyTop', 'skyHorizon', 'cloudColor'];
 
   const toState = (p) => {
     const s = {};
-    for (const k of NUM_KEYS) s[k] = p[k];
+    for (const k of NUM_KEYS) s[k] = p[k] ?? 0;
+    s.nightness = p.night ? 1 : 0; // 夜の度合い（街の灯り・地平の街明かり）
     for (const k of COLOR_KEYS) s[k] = new THREE.Color(p[k]);
     return s;
   };
@@ -31,6 +33,7 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     uCover: { value: 0 },
     uTime: { value: 0 },
     uFlash: { value: 0 },
+    uGlow: { value: new THREE.Color() },
     uCenter: { value: center },
   };
   const sky = new THREE.Mesh(
@@ -46,7 +49,7 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
         }
       `,
       fragmentShader: /* glsl */ `
-        uniform vec3 uTop, uHorizon, uCloud, uCenter;
+        uniform vec3 uTop, uHorizon, uCloud, uCenter, uGlow;
         uniform float uCover, uTime, uFlash;
         varying vec3 vWorld;
 
@@ -66,13 +69,15 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
           vec3 d = normalize(vWorld - uCenter);
           float e = max(d.y, 0.0);
           vec3 col = mix(uHorizon, uTop, pow(e, 0.45));
+          // 夜：地平に街明かりが映る（赤みのある光）
+          col += uGlow * exp(-e * 9.0);
 
           // 雲：空を平面に投影してノイズで描き、ゆっくり流す
           vec2 p = d.xz / (d.y + 0.15) * 1.6 + vec2(uTime * 0.006, uTime * 0.003);
           float n = fbm(p);
           float m = smoothstep(1.0 - uCover - 0.05, 1.0 - uCover + 0.3, n) * smoothstep(-0.02, 0.1, d.y);
           vec3 cloud = uCloud * (0.82 + 0.36 * fbm(p * 2.7 + 7.0));
-          col = mix(col, cloud, m);
+          col = mix(col, cloud + uGlow * 0.6 * exp(-e * 4.0), m);
           col += uFlash * vec3(0.75, 0.8, 1.0);
 
           gl_FragColor = vec4(col, 1.0);
@@ -89,19 +94,11 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
   sky.userData.noPick = true;
   scene.add(sky);
 
-  // ---------- 景色（街並み・木々） ----------
+  // ---------- 景色（窓の外の近未来の都市。cityScape.js） ----------
 
-  const R = 90;
-  const landHeight = (Math.PI * R * 768) / 2048;
-  const land = new THREE.Mesh(
-    new THREE.CylinderGeometry(R, R, landHeight, 96, 1, true, 0, Math.PI),
-    new THREE.MeshBasicMaterial({ map: rig.landTexture, transparent: true, alphaTest: 0.02, side: THREE.BackSide, depthWrite: false }),
-  );
-  // テクスチャの水平線（上から 58%）を horizonY に合わせる
-  land.position.set(center.x, rig.horizonY + landHeight * (0.58 - 0.5), center.z);
-  land.renderOrder = -5;
-  land.userData.noPick = true;
-  scene.add(land);
+  const city = createCity(scene);
+  // 夜の地平の街明かりの色
+  const GLOW = new THREE.Color(0.2, 0.06, 0.035);
 
   scene.fog = new THREE.FogExp2(0xffffff, 0);
 
@@ -193,7 +190,8 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     skyUniforms.uCloud.value.copy(c.cloudColor);
     skyUniforms.uCover.value = c.cloudCover;
     skyUniforms.uFlash.value = flash * 0.6;
-    land.material.color.copy(c.land);
+    skyUniforms.uGlow.value.copy(GLOW).multiplyScalar(c.nightness);
+    city.setLook({ night: c.nightness });
 
     scene.fog.color.copy(c.skyHorizon);
     scene.fog.density = c.fog;
@@ -318,6 +316,7 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     update(dt, t) {
       now = t;
       skyUniforms.uTime.value = t;
+      city.update(t);
       step(dt);
       animateLightning(dt, t);
       animateParticles(dt, t);

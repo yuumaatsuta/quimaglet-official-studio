@@ -265,7 +265,6 @@ export async function buildStudioRoom(onProgress) {
     weatherRig: {
       lights: { sun, sky, hemi, lamp, menuLamp },
       lampMaterial: tubeMat,
-      landTexture: textures.land,
       horizonY: EYE,
       outside: { x0: W / 2 + 0.4, x1: W / 2 + 30, z0: -D - 16, z1: 10 },
     },
@@ -1426,13 +1425,11 @@ async function loadTextures(manager) {
     pavingAlbedo: ['paving_albedo.png', true],
     pavingNormal: ['paving_normal.png'],
     pavingRough: ['paving_roughness.png'],
-    land: ['outside_land.png', true],
   };
   const entries = await Promise.all(
     Object.entries(files).map(async ([key, [name, srgb]]) => [key, await load(name, srgb)]),
   );
   const textures = Object.fromEntries(entries);
-  textures.land.wrapS = textures.land.wrapT = THREE.ClampToEdgeWrapping;
   return textures;
 }
 

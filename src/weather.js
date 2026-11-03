@@ -21,7 +21,7 @@ const PRESETS = {
     hemi: 0.25,
     skyTop: '#4f8fd8', skyHorizon: '#dbe6ee',
     cloudCover: 0.12, cloudColor: '#ffffff',
-    land: '#ffffff', fog: 0.003,
+    fog: 0.003,
     rain: 0, snow: 0, thunder: 0, lamp: 0, exposure: 1.0,
   },
   partly: {
@@ -30,7 +30,7 @@ const PRESETS = {
     hemi: 0.3,
     skyTop: '#5d93d0', skyHorizon: '#dbe3ea',
     cloudCover: 0.5, cloudColor: '#f4f6f8',
-    land: '#f2f2f2', fog: 0.004,
+    fog: 0.004,
     rain: 0, snow: 0, thunder: 0, lamp: 0, exposure: 1.05,
   },
   cloudy: {
@@ -39,7 +39,7 @@ const PRESETS = {
     hemi: 0.45,
     skyTop: '#9aa4ae', skyHorizon: '#d0d5d9',
     cloudCover: 0.9, cloudColor: '#c4c9ce',
-    land: '#b8bdbf', fog: 0.006,
+    fog: 0.006,
     rain: 0, snow: 0, thunder: 0, lamp: 0, exposure: 1.25,
   },
   rain: {
@@ -48,7 +48,7 @@ const PRESETS = {
     hemi: 0.4,
     skyTop: '#6c7782', skyHorizon: '#a6afb6',
     cloudCover: 1.0, cloudColor: '#88919a',
-    land: '#8c9393', fog: 0.011,
+    fog: 0.011,
     rain: 1, snow: 0, thunder: 0, lamp: 0.35, exposure: 1.35,
   },
   snow: {
@@ -57,7 +57,7 @@ const PRESETS = {
     hemi: 0.5,
     skyTop: '#b5bec8', skyHorizon: '#e3e7eb',
     cloudCover: 1.0, cloudColor: '#d9dee3',
-    land: '#e6eaed', fog: 0.013,
+    fog: 0.013,
     rain: 0, snow: 1, thunder: 0, lamp: 0.2, exposure: 1.25,
   },
   fog: {
@@ -66,7 +66,7 @@ const PRESETS = {
     hemi: 0.45,
     skyTop: '#c2c7cb', skyHorizon: '#d8dbdd',
     cloudCover: 1.0, cloudColor: '#d0d4d7',
-    land: '#c8cccd', fog: 0.024,
+    fog: 0.024,
     rain: 0, snow: 0, thunder: 0, lamp: 0.2, exposure: 1.25,
   },
   thunder: {
@@ -75,7 +75,7 @@ const PRESETS = {
     hemi: 0.3,
     skyTop: '#454d56', skyHorizon: '#7b838a',
     cloudCover: 1.0, cloudColor: '#59616a',
-    land: '#6a7070', fog: 0.012,
+    fog: 0.012,
     rain: 1.5, snow: 0, thunder: 1, lamp: 1, exposure: 1.4,
   },
 };
@@ -96,7 +96,6 @@ function night(p) {
     skyTop: darken(p.skyTop, 0.08),
     skyHorizon: darken(p.skyHorizon, 0.13),
     cloudColor: darken(p.cloudColor, 0.12),
-    land: darken(p.land, 0.16),
     lamp: 0.6, // 夜の蛍光灯は少し落とす
     exposure: 0.95,
     night: true, // 夜は月を下ろす（planetarium.js）

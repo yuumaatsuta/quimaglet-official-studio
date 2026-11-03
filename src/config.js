@@ -13,7 +13,7 @@ export const CONFIG = {
     // 目の追従の速さ（大きいほど機敏）
     damping: 4,
     near: 0.05,
-    far: 300,
+    far: 900,
   },
 
   // ブラウン管に流す映像（音なし・ループ）。public/videos/ に置いたファイルか、外部の URL。
