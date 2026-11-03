@@ -637,11 +637,12 @@ const FURNITURE = [
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
     narrow: { x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 } },
   },
-  // HB の前の床に置いたエフェクターボード（生成モデル）。踏む側（モデルの +z）を部屋の内側へ向け、少し斜めに置く。
+  // HB の前の床に置いたエフェクターボード（生成モデル）。踏む側（モデルの +z）を部屋の内側へ向け、斜めに置く。
+  // モデルは奥の脚が長いので、手前へ 11° 傾けて、手前の辺と奥の脚の両方を床に付ける。
   // 縦長の画面では、タワーに立てかけた HB の前に置く
   {
-    url: 'models/pedalboard.glb', x: -2.55, z: -7.8, rotationY: Math.PI / 2 - 0.18, width: 0.6, mirror: { height: 0.15, strength: 0.3 },
-    narrow: { x: -1.8, z: -7.3, rotationY: 0.45 },
+    url: 'models/pedalboard.glb', x: -2.5, z: -7.8, rotationY: Math.PI / 2 - 0.5, rotationX: 0.19, width: 0.6, mirror: { height: 0.15, strength: 0.3 },
+    narrow: { x: -1.8, z: -7.3, rotationY: 0.8 },
   },
   // 右奥のブラウン管のタワー（キーボードの奥）の、いちばん下の段に立てかけたベース（白いジャズベースの生成モデル）。
   // Gretsch とは向きを変え、左へ大きく振って、少しひねって立てかける
