@@ -629,7 +629,7 @@ const FURNITURE = [
     url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
     // 生成モデルの金属っぽさが強く、ボディがぎらつくので抑える
-    tone: { metalness: 0.35, envMapIntensity: 0.55 },
+    tone: { metalness: 0, envMapIntensity: 0.15, minRoughness: 0.7 },
   },
   // 左の壁、コンクリートの棚の下に掛けたギター（HB の生成モデル）。正面を部屋へ向け、ヘッドの下を壁のハンガーで支える。
   // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
@@ -659,7 +659,20 @@ async function loadFurniture(manager) {
         obj.castShadow = true;
         obj.receiveShadow = true;
         if (item.fabric) obj.material = fabricMaterial(obj.material, item.fabric);
-        if (item.tone) Object.assign(obj.material, item.tone);
+        if (item.tone) {
+          const { minRoughness, ...props } = item.tone;
+          Object.assign(obj.material, props);
+          // minRoughness: 艶の強い所（roughness の小さい所）も、これより鈍くする（光の照り返しを広く弱く）
+          if (minRoughness) {
+            obj.material.onBeforeCompile = (shader) => {
+              shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <roughnessmap_fragment>',
+                `#include <roughnessmap_fragment>\nroughnessFactor = max(roughnessFactor, ${minRoughness.toFixed(3)});`,
+              );
+            };
+            obj.material.customProgramCacheKey = () => `minRough${minRoughness}`;
+          }
+        }
       });
       if (item.screen) addCrtScreen(model, item.screen);
       // 幅を実寸に合わせ、床（y = 0）に接地させる
