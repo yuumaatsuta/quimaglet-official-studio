@@ -184,6 +184,7 @@
           <button type="button" data-tab="about" aria-selected="true">About</button>
           <button type="button" data-tab="news" aria-selected="false">News（お知らせ）</button>
           <button type="button" data-tab="works" aria-selected="false">Works</button>
+          <button type="button" data-tab="goods" aria-selected="false">Goods</button>
           <button type="button" data-tab="contact" aria-selected="false">Contact</button>
         </div>
 
@@ -211,6 +212,17 @@
           <input id="works-title" />
           <label for="works-body">本文（空行で段落。URL とメールアドレスはリンクになります）</label>
           <textarea id="works-body" class="tall"></textarea>
+        </section>
+
+        <section data-panel="goods" hidden>
+          <h2>Goods（グッズ）</h2>
+          <p class="note">グッズの展開状況を 1 点ずつ並べます。状況の言葉で色が変わります（販売中＝緑、予約受付中＝青、準備中・近日＝黄、売り切れ・完売＝赤）。上にあるものから順に表示されます。</p>
+          <label for="goods-title">タイトル</label>
+          <input id="goods-title" />
+          <label for="goods-body">はじめの文章（空でもよい）</label>
+          <textarea id="goods-body"></textarea>
+          <div id="goods-list"></div>
+          <button type="button" id="goods-add">＋ グッズを追加（いちばん下に）</button>
         </section>
 
         <section data-panel="contact" hidden>
@@ -246,6 +258,42 @@
         </div>
       </div>
     </template>
+
+    <template id="goods-template">
+      <div class="news-item goods-item">
+        <div class="row">
+          <div>
+            <label>名前</label>
+            <input data-field="name" placeholder="ロゴ T シャツ" />
+          </div>
+          <div style="flex: 0 0 9.5em">
+            <label>状況</label>
+            <input data-field="status" list="goods-status" placeholder="販売中" />
+          </div>
+          <div style="flex: 0 0 9.5em">
+            <label>価格</label>
+            <input data-field="price" placeholder="¥3,500" />
+          </div>
+        </div>
+        <label>説明（サイズ・色・販売場所など）</label>
+        <textarea data-field="note"></textarea>
+        <label>画像（URL か、public/ に置いた画像のパス。空でもよい）</label>
+        <input data-field="image" placeholder="images/goods-tshirt.jpg" />
+        <label>購入ページの URL（空でもよい）</label>
+        <input data-field="url" placeholder="https://..." />
+        <div class="tools">
+          <button type="button" data-act="up">↑</button>
+          <button type="button" data-act="down">↓</button>
+          <button type="button" data-act="remove" class="danger">削除</button>
+        </div>
+      </div>
+    </template>
+    <datalist id="goods-status">
+      <option value="販売中"></option>
+      <option value="予約受付中"></option>
+      <option value="準備中"></option>
+      <option value="売り切れ"></option>
+    </datalist>
 
     <script type="module">
       // 内容は GitHub の 2 か所に書く：
@@ -347,7 +395,40 @@
           $(`${id}-body`).value = p[id]?.body ?? '';
         }
         renderNews(data.news ?? []);
+        $('goods-title').value = p.goods?.title ?? 'Goods';
+        $('goods-body').value = p.goods?.body ?? '';
+        renderList('goods', p.goods?.items ?? []);
       }
+
+      // グッズの一覧（お知らせと同じ形の、並べ替えできるリスト）
+      function renderList(id, list) {
+        const box = $(`${id}-list`);
+        box.innerHTML = '';
+        for (const item of list) {
+          const node = $(`${id}-template`).content.firstElementChild.cloneNode(true);
+          for (const input of node.querySelectorAll('[data-field]')) input.value = item[input.dataset.field] ?? '';
+          box.append(node);
+        }
+      }
+      function readList(id) {
+        return [...$(`${id}-list`).children].map((node) => {
+          const item = {};
+          for (const input of node.querySelectorAll('[data-field]')) item[input.dataset.field] = input.value.trim();
+          return item;
+        });
+      }
+      $('goods-list').addEventListener('click', (e) => {
+        const act = e.target.dataset?.act;
+        if (!act) return;
+        const node = e.target.closest('.goods-item');
+        if (act === 'remove' && confirm('このグッズを削除しますか？')) node.remove();
+        if (act === 'up' && node.previousElementSibling) node.previousElementSibling.before(node);
+        if (act === 'down' && node.nextElementSibling) node.nextElementSibling.after(node);
+      });
+      $('goods-add').addEventListener('click', () => {
+        renderList('goods', [...readList('goods'), { name: '', status: '準備中', price: '', note: '', image: '', url: '' }]);
+        $('goods-list').lastElementChild.querySelector('[data-field="name"]').focus();
+      });
 
       function renderNews(list) {
         const box = $('news-list');
@@ -398,6 +479,11 @@
               fill: $('about-fill').value.split('\n').map((s) => s.trim()).filter(Boolean),
             },
             works: { title: $('works-title').value.trim() || 'Works', body: $('works-body').value.trim() },
+            goods: {
+              title: $('goods-title').value.trim() || 'Goods',
+              body: $('goods-body').value.trim(),
+              items: readList('goods').filter((it) => it.name),
+            },
             contact: { title: $('contact-title').value.trim() || 'Contact', body: $('contact-body').value.trim() },
           },
           news: readNews().filter((n) => n.title || n.body),
