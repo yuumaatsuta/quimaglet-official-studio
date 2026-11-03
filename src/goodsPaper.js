@@ -86,12 +86,12 @@ export function createGoodsPaper() {
   bottomRoll.rotation.z = Math.PI / 2;
   pivot.add(topRoll);
 
-  // 下の端の金具：巻物の芯の金属の棒と、両端の小さな浮遊ユニット（下へ青く噴いて、紙の下端を宙に支える）
+  // 下の端の金具：巻物の芯の金属の棒と、両端の小さな浮遊ユニット（下へ青い光を放って、紙の下端を宙に支える）
   const bottomRig = new THREE.Group();
   const bottomRod = new THREE.Mesh(new THREE.CylinderGeometry(PAPER.rodRadius * 0.85, PAPER.rodRadius * 0.85, rodLength, 20), metal);
   bottomRod.rotation.z = Math.PI / 2;
   bottomRig.add(bottomRoll, bottomRod);
-  const hovers = [-1, 1].map((side) => hoverUnit(side, rodLength, metal, brass));
+  const hovers = [-1, 1].map((side) => hoverUnit(side, rodLength));
   for (const h of hovers) bottomRig.add(h.group);
   pivot.add(bottomRig);
 
@@ -299,78 +299,90 @@ export function createGoodsPaper() {
 
 // ---------- 下の端の浮遊ユニット ----------
 
-// 棒の両端の真下に吊るした、手のひらほどの小さな浮遊機。黒い胴、真鍮の帯、下へ青く光る噴射口（噴射だけで浮く）
-const HOVER_COLOR = new THREE.Color('#6fd0ff');
+// 棒の両端の真下に吊るした、小さな浮遊機。白い艶のある涙形の殻に、青く光る輪と細い光の筋。
+// 底のリングから下へ青い光を放って、紙の下端を宙に支える（羽根などの回る部品はない）
+const HOVER_COLOR = new THREE.Color('#5fd8ff');
 let hoverGlowTexture;
-function hoverUnit(side, rodLength, metal, brass) {
+function hoverUnit(side, rodLength) {
   const group = new THREE.Group();
   group.position.set(side * (rodLength / 2 - 0.014), -0.034, 0);
-  const dark = new THREE.MeshStandardMaterial({ color: '#25272c', metalness: 0.7, roughness: 0.4 });
-  // 胴（縦の短い筒）と、上の丸いふた、真鍮の帯
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.017, 0.026, 24), dark);
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.014, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), dark);
-  cap.position.y = 0.013;
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.0175, 0.0175, 0.005, 24), brass);
-  band.position.y = -0.004;
-  // 棒を上でつかむ支柱
-  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.024, 12), metal);
-  arm.position.y = 0.024;
-  const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.0075, 0.0025, 8, 16), brass);
-  clamp.rotation.y = Math.PI / 2;
-  clamp.position.y = 0.034;
-  // 外側の小さな点滅灯
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.0012, 0.0012, 0.012, 8), metal);
-  mast.rotation.z = Math.PI / 2;
-  mast.position.set(side * 0.021, 0.004, 0);
-  const beacon = new THREE.Mesh(
-    new THREE.SphereGeometry(0.0028, 10, 8),
-    new THREE.MeshBasicMaterial({ color: '#ff5a4a' }),
-  );
-  beacon.position.set(side * 0.028, 0.004, 0);
-  // 噴射口（光る円盤）と、下へ広がる光
-  const nozzleMat = new THREE.MeshBasicMaterial({ color: HOVER_COLOR, transparent: true });
-  const nozzle = new THREE.Mesh(new THREE.CircleGeometry(0.011, 24), nozzleMat);
-  nozzle.rotation.x = Math.PI / 2;
-  nozzle.position.y = -0.0135;
+  const shell = new THREE.MeshPhysicalMaterial({ color: '#eef1f4', metalness: 0.1, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.08 });
+  const graphite = new THREE.MeshStandardMaterial({ color: '#1b1e24', metalness: 0.8, roughness: 0.3 });
+  const lightMat = new THREE.MeshBasicMaterial({ color: HOVER_COLOR, transparent: true });
+
+  // 殻：上が丸く、下へすぼまる涙形（回転体）
+  const profile = [];
+  for (let i = 0; i <= 16; i++) {
+    const a = (i / 16) * Math.PI;
+    const r = Math.sin(a) * (0.018 - 0.006 * (i / 16));
+    profile.push(new THREE.Vector2(Math.max(0.0005, r), 0.016 * Math.cos(a) - (i / 16) * 0.004));
+  }
+  const body = new THREE.Mesh(new THREE.LatheGeometry(profile, 32), shell);
+  // 胴を一周する光の輪と、その下の黒い継ぎ目
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0182, 0.0011, 8, 48), lightMat);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = -0.002;
+  const seam = new THREE.Mesh(new THREE.CylinderGeometry(0.0176, 0.0168, 0.003, 32), graphite);
+  seam.position.y = -0.0055;
+  // 前後に走る細い光の筋（縦の 2 本）
+  const stripGeo = new THREE.BoxGeometry(0.0012, 0.012, 0.0008);
+  const strips = [1, -1].map((s) => {
+    const m = new THREE.Mesh(stripGeo, lightMat);
+    m.position.set(0, 0.006, s * 0.0168);
+    return m;
+  });
+  // 棒をつかむ、細い黒の支柱と光る継ぎ目
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.003, 0.02, 12), graphite);
+  arm.position.y = 0.025;
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.0068, 0.0018, 8, 24), graphite);
+  collar.rotation.y = Math.PI / 2;
+  collar.position.y = 0.034;
+  // 底の放射リング（光る輪と、中の黒いレンズ）
+  const emitter = new THREE.Mesh(new THREE.TorusGeometry(0.0085, 0.0016, 8, 40), lightMat);
+  emitter.rotation.x = Math.PI / 2;
+  emitter.position.y = -0.0185;
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.0075, 32), graphite);
+  lens.rotation.x = Math.PI / 2;
+  lens.position.y = -0.0184;
   if (!hoverGlowTexture) {
     const c = document.createElement('canvas');
     c.width = c.height = 64;
     const g = c.getContext('2d');
     const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    r.addColorStop(0, 'rgba(230,248,255,1)');
-    r.addColorStop(0.3, 'rgba(110,200,255,0.6)');
-    r.addColorStop(1, 'rgba(40,120,255,0)');
+    r.addColorStop(0, 'rgba(230,250,255,1)');
+    r.addColorStop(0.3, 'rgba(100,215,255,0.55)');
+    r.addColorStop(1, 'rgba(40,130,255,0)');
     g.fillStyle = r;
     g.fillRect(0, 0, 64, 64);
     hoverGlowTexture = new THREE.CanvasTexture(c);
   }
-  const glow = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: hoverGlowTexture, color: HOVER_COLOR, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
-  );
-  glow.position.y = -0.02;
-  glow.scale.set(0.05, 0.05, 1);
-  // 噴射の筋（下へ細く伸びて消える光）
-  const jet = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: hoverGlowTexture, color: HOVER_COLOR, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
-  );
-  jet.position.y = -0.04;
-  jet.scale.set(0.018, 0.06, 1);
-  group.add(body, cap, band, arm, clamp, mast, beacon, nozzle, glow, jet);
+  const sprite = () =>
+    new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: hoverGlowTexture, color: HOVER_COLOR, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+  const glow = sprite();
+  glow.position.y = -0.022;
+  // 下へ伸びる、細く消えていく光の柱
+  const beam = sprite();
+  const ringGlow = sprite();
+  ringGlow.position.y = -0.002;
+  group.add(body, ring, seam, ...strips, arm, collar, emitter, lens, glow, beam, ringGlow);
   group.traverse((o) => o.isMesh && (o.userData.noPick = true));
   const phase = side * 1.3;
   return {
     group,
     update(t, power) {
-      const flicker = 0.85 + 0.1 * Math.sin(t * 47 + phase) + 0.05 * Math.sin(t * 113 + phase * 2);
+      const flicker = 0.88 + 0.08 * Math.sin(t * 31 + phase) + 0.04 * Math.sin(t * 97 + phase * 2);
       const a = power * flicker;
-      nozzleMat.opacity = 0.5 + 0.5 * a;
+      lightMat.opacity = 0.55 + 0.45 * a;
       glow.material.opacity = a;
-      glow.scale.setScalar(0.035 + 0.03 * a);
-      jet.material.opacity = 0.7 * a;
-      jet.scale.set(0.016, 0.03 + 0.05 * a, 1);
-      jet.position.y = -0.02 - (0.015 + 0.025 * a);
-      // てっぺんの灯は 1 秒に 1 回ほど点く
-      beacon.visible = (t + phase) % 1.1 < 0.12;
+      glow.scale.setScalar(0.03 + 0.03 * a);
+      beam.material.opacity = 0.55 * a;
+      beam.scale.set(0.012, 0.03 + 0.06 * a, 1);
+      beam.position.y = -0.022 - (0.015 + 0.03 * a);
+      // 胴の光の輪が、ゆっくり息をするように明るくなる
+      ringGlow.material.opacity = 0.25 + 0.2 * Math.sin(t * 2.2 + phase);
+      ringGlow.scale.set(0.05, 0.012, 1);
     },
   };
 }
