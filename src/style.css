@@ -78,15 +78,30 @@ button {
 
 .logo {
   pointer-events: auto;
-  display: block;
+  display: grid; /* 昼と夜のロゴを重ねる */
   line-height: 0;
 }
-/* ロゴ（logo white.png を切り抜いて縮めたもの。src/assets/logo.png） */
+/* ロゴ（logo black.png / logo white.png を切り抜いて縮めたもの。src/assets/logo-black.png・logo.png）。
+   昼は黒、夜は白（main.js が body に is-night を付ける）。天気が移り変わるのに合わせてゆっくり入れ替える */
 .logo img {
+  grid-area: 1 / 1;
   display: block;
   height: clamp(54px, calc(76 * var(--u)), 96px);
   width: auto;
-  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45)); /* 明るい昼の窓の前でも見えるように */
+  transition: opacity 1.2s ease;
+}
+.logo-day {
+  filter: drop-shadow(0 1px 6px rgba(255, 255, 255, 0.35)); /* 暗い所に重なっても見えるように */
+}
+.logo-night {
+  opacity: 0;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45));
+}
+body.is-night .logo-day {
+  opacity: 0;
+}
+body.is-night .logo-night {
+  opacity: 1;
 }
 
 .nav {

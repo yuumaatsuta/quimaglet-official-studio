@@ -203,6 +203,8 @@ if (weather) {
     shown = true;
     // 夜は月を下ろす（触れると星空を映す）
     room.planetarium?.setNight(!!params.night);
+    // 左上のロゴ：昼は黒、夜は白（style.css）
+    document.body.classList.toggle('is-night', !!params.night);
     // 行き先の天気の環境マップを先に撮り、光と一緒に少しずつ替える
     if (!instant) weather.previewTarget(() => captureEnvironment(true));
   };
