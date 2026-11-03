@@ -1,7 +1,8 @@
 // About を開いたときの画面。バンドが作った 1 見開きのデザイン（public/images/about-*.webp）を、
-// 部屋の上に映す。映り始めと、映っている間ときどき、ノイズが走って絵が乱れる（エラーのような乱れ）。
-// 横長の画面では見開き全体を画面に収め、縦長の画面（スマホ）では高さを合わせて横へスクロールして読む。
-// 絵の外を押す・閉じるボタン・Esc で閉じる
+// 部屋の上にそのまま映す（デザインの黒い地は透明にしてある。左下の写真だけは不透明）。
+// 映り始めと、映っている間ときどき、ノイズが走って絵が乱れる（エラーのような乱れ）。
+// 横長の画面では見開き全体を画面いっぱいに収め、縦長の画面（スマホ）では高さを合わせて横へスクロールして読む。
+// 文字や写真のない所（透明な所）を押す・Esc で閉じる
 
 const SHEET = {
   ratio: 4152 / 2921, // 元のデザインの縦横比
@@ -56,8 +57,7 @@ export function createAboutView({ onOpen, onClose } = {}) {
         <div class="sr-only">${TEXT}</div>
       </div>
     </div>
-    <canvas class="about-noise" aria-hidden="true"></canvas>
-    <button type="button" class="about-close" aria-label="About を閉じる">× CLOSE</button>`;
+    <canvas class="about-noise" aria-hidden="true"></canvas>`;
   document.body.append(root);
   const noise = root.querySelector('.about-noise');
   const nctx = noise.getContext('2d');
@@ -75,9 +75,9 @@ export function createAboutView({ onOpen, onClose } = {}) {
   // 横長の画面：見開き全体を収める。縦長の画面：高さを合わせ、横へスクロールして読む
   function layout() {
     const narrow = innerWidth < 720;
-    const top = narrow ? 70 : 86; // ロゴとメニューの下から
-    const bottom = narrow ? 70 : 64; // 閉じるボタンの上まで
-    const side = narrow ? 12 : 32;
+    const top = narrow ? 70 : 64; // ロゴとメニューの下から
+    const bottom = narrow ? 16 : 8;
+    const side = narrow ? 12 : 12;
     const availW = innerWidth - side * 2;
     const availH = innerHeight - top - bottom;
     const portrait = innerWidth < innerHeight;
@@ -202,9 +202,38 @@ export function createAboutView({ onOpen, onClose } = {}) {
     }, 420);
   }
 
-  // 絵の外を押したら閉じる（スクロールのためのドラッグでは click が来ないので閉じない）
+  // 押した所が絵の透明な所（文字も写真もない所）か。小さい方の絵を一度だけ読み込んで調べる
+  let hitData = null;
+  const hitImage = new Image();
+  hitImage.src = `${base}images/about-1800.webp`;
+  hitImage.decode().then(() => {
+    const c = document.createElement('canvas');
+    c.width = 360;
+    c.height = Math.round(360 / SHEET.ratio);
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(hitImage, 0, 0, c.width, c.height);
+    hitData = { w: c.width, h: c.height, a: g.getImageData(0, 0, c.width, c.height).data };
+  }).catch(() => {});
+  function onInk(e) {
+    const r = sheet.getBoundingClientRect();
+    const u = (e.clientX - r.left) / r.width;
+    const v = (e.clientY - r.top) / r.height;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return false;
+    if (!hitData) return true;
+    // 押した所のまわり（文字の隙間を押しても閉じないよう、少し広く）に色があるか
+    const cx = Math.floor(u * hitData.w);
+    const cy = Math.floor(v * hitData.h);
+    for (let y = cy - 2; y <= cy + 2; y++) {
+      for (let x = cx - 2; x <= cx + 2; x++) {
+        if (x < 0 || y < 0 || x >= hitData.w || y >= hitData.h) continue;
+        if (hitData.a[(y * hitData.w + x) * 4 + 3] > 40) return true;
+      }
+    }
+    return false;
+  }
+  // 何もない所を押したら閉じる（スクロールのためのドラッグでは click が来ないので閉じない）
   root.addEventListener('click', (e) => {
-    if (e.target.closest('.about-close') || !e.target.closest('.about-sheet')) hide();
+    if (!onInk(e)) hide();
   });
   addEventListener('keydown', (e) => e.key === 'Escape' && hide());
   addEventListener('resize', () => open && layout());

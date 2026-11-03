@@ -560,13 +560,12 @@ body:not(.is-holo) .holo-beam {
 }
 
 /* ---------- about（バンドのデザインの見開きを映す。aboutView.js） ---------- */
-/* 部屋を少し暗くして、その上に見開きの絵を映す。ざらつき（canvas）を重ね、ときどき絵ごと乱れる */
+/* 背景は暗くしない。部屋の上に見開きの絵（黒い地は透明）を映し、ざらつき（canvas）を重ね、ときどき絵ごと乱れる */
 
 .about-view {
   position: fixed;
   inset: 0;
   z-index: 4;
-  background: rgba(0, 0, 0, 0.6);
   opacity: 0;
   transition: opacity 0.35s steps(4);
   outline: none;
@@ -616,12 +615,12 @@ body.is-goods .hero {
   align-items: center;
   justify-content: center;
 }
+/* 明るい部屋の上でも白い文字が読めるよう、文字の形に沿ったごく薄い影を付ける */
 .about-sheet {
   display: block;
   flex: none;
   max-width: none;
-  background: #000;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 18px 60px rgba(0, 0, 0, 0.6);
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 12px rgba(0, 0, 0, 0.3));
   will-change: transform;
 }
 
@@ -641,26 +640,7 @@ body.is-goods .hero {
 
 /* 乱れているあいだ：色が左右に分かれる */
 .about-page.is-glitch .about-sheet {
-  filter: drop-shadow(3px 0 rgba(255, 0, 70, 0.7)) drop-shadow(-3px 0 rgba(0, 210, 255, 0.7));
-}
-
-.about-close {
-  position: fixed;
-  left: 50%;
-  bottom: max(16px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  padding: 9px 20px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font: 600 0.8rem/1 system-ui, sans-serif;
-  letter-spacing: 0.14em;
-  cursor: pointer;
-}
-.about-close:hover,
-.about-close:focus-visible {
-  background: rgba(255, 255, 255, 0.15);
+  filter: drop-shadow(3px 0 rgba(255, 0, 70, 0.7)) drop-shadow(-3px 0 rgba(0, 210, 255, 0.7)) drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.6));
 }
 
 @media (prefers-reduced-motion: reduce) {
