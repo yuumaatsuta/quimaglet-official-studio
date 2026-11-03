@@ -567,7 +567,8 @@ body.is-about .site-header {
   z-index: 5;
 }
 /* 読んでいる間は IMMERSE を隠す（文字と重なるので） */
-body.is-about .hero {
+body.is-about .hero,
+body.is-goods .hero {
   visibility: hidden;
 }
 

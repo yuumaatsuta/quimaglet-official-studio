@@ -737,6 +737,13 @@ const WANDER = {
   peekEvery: [9, 16], // 戻ってから次に来るまで（秒）
   peekStare: 1.2, // 止まってじっと見る時間（秒）
   peekTilt: 0.42, // 首をかしげる角度（rad）
+  // Goods を選んだとき（deliver）。底のマグネットに紙のメニューを吊るして、読みやすい所まで近づく
+  deliverSpeed: 1.6,
+  deliverAccel: 1.3,
+  deliverFill: 0.78, // 紙の高さが、画面の高さのこの割合になるまで近づく（ロボットは上に少し見切れる）
+  deliverFillW: 0.88, // 紙の幅が、画面の幅のこの割合を超えないようにする（縦長の画面）
+  deliverAt: -0.05, // 紙の中心を置く、画面の上下の位置（-1〜1）
+  deliverMin: 0.38, // 目からこれより近づかない（m）
 };
 
 // 顔の下の光るスロット（ホログラムの投影口）。robot.glb の元の座標（底 y = 0、正面 +z）
@@ -775,13 +782,19 @@ function holoGlow() {
 
 function robotWander(model, item) {
   model.updateMatrixWorld(true);
-  const center = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
+  const modelBox = new THREE.Box3().setFromObject(model);
+  const center = modelBox.getCenter(new THREE.Vector3());
+  const size = modelBox.getSize(new THREE.Vector3());
   model.position.sub(center);
   // body: 位置と向き。head: 見回し・傾き（body の中で回す）
   const body = new THREE.Group();
   const head = new THREE.Group();
   head.add(model);
   body.add(head);
+  // 底のマグネットの位置。Goods の紙をここに吊るす（main.js / goodsPaper.js）。首を振っても紙は揺れないよう body に付ける
+  const carry = new THREE.Group();
+  carry.position.y = -size.y / 2 + 0.012;
+  body.add(carry);
 
   // 投影口。光の玉と、ロボットの下側を青く照らす光を付ける（映していない間は消しておく）
   const emitter = new THREE.Object3D();
@@ -819,6 +832,8 @@ function robotWander(model, item) {
     peekOn: false, // About を読んでいる間
     peekTimer: 0,
     peek: null, // のぞき込みの途中 { phase: in / stare / tilt / out, t, side, backX }
+    deliver: null, // 紙を持ってくる途中 { width, depth }（紙の幅と、マグネットから紙の下端までの長さ）
+    carrying: false, // 紙を吊るしている（持ってきてから、画面の外へ出るまで）
   };
 
   // 画面上の位置（窓の左右・上下の割合 -1〜1）を、目から見てその位置に重なる深さ z の点にする
@@ -863,7 +878,7 @@ function robotWander(model, item) {
     st.laneZ = z;
     st.rollTarget = 0;
     // About を読んでいる間は、ときどき目の前までのぞきに来る
-    if (st.peekOn && st.mode !== 'summon' && st.mode !== 'peek') {
+    if (st.peekOn && st.mode !== 'summon' && st.mode !== 'peek' && st.mode !== 'deliver') {
       st.peekTimer -= dt;
       if (st.peekTimer <= 0) {
         st.mode = 'peek';
@@ -934,6 +949,50 @@ function robotWander(model, item) {
           }
         }
       }
+    } else if (st.mode === 'deliver') {
+      // 紙を持って、目の前の読みやすい所へ。紙が画面の高さの大部分を占める深さで止まる
+      const eye = view?.liveEye ?? view?.eye;
+      let goal = { x: st.x, y: st.y, z: st.pz };
+      if (eye) {
+        const { win } = view;
+        const depth = st.deliver.depth;
+        const span = eye.z - win.cz;
+        const k = Math.max(
+          depth / (WANDER.deliverFill * 2 * win.halfH),
+          st.deliver.width / (WANDER.deliverFillW * 2 * win.halfW),
+          WANDER.deliverMin / span,
+        );
+        const gz = eye.z - k * span;
+        const c = screenPoint(eye, win, 0, WANDER.deliverAt, gz);
+        goal = { x: c.x, y: c.y - (carry.position.y - depth / 2), z: gz };
+      }
+      const dx = goal.x - st.x;
+      const dy = goal.y - st.y;
+      const dz = goal.z - st.pz;
+      const dist = Math.hypot(dx, dy, dz);
+      if (st.arrived) {
+        // 着いたら、目が動いてもその前に留まる
+        st.x = damp(st.x, goal.x, 3, dt);
+        st.y = damp(st.y, goal.y, 3, dt);
+        st.pz = damp(st.pz, goal.z, 3, dt);
+        st.speed = 0;
+      } else {
+        const cap = Math.min(WANDER.deliverSpeed, Math.sqrt(2 * WANDER.deliverAccel * dist));
+        st.speed = Math.min(st.speed + WANDER.deliverAccel * dt, cap);
+        const step = Math.min(dist, st.speed * dt);
+        if (dist > 1e-4) {
+          st.x += (dx / dist) * step;
+          st.y += (dy / dist) * step;
+          st.pz += (dz / dist) * step;
+        }
+        if (dist < 0.015) st.arrived = true;
+      }
+      // 遠いうちは進む方を向き、近づいたらこちらを向いて、少しうつむいて紙を見せる
+      const travel = Math.abs(dx) + Math.abs(dz) > 1e-3 ? Math.atan2(dx, dz) : 0;
+      const near = THREE.MathUtils.smoothstep(dist, 0.12, 0.7);
+      st.yawTarget = travel * near;
+      st.pitchTarget = (1 - near) * 0.16;
+      st.rollTarget = st.arrived ? Math.sin(t * 0.7) * 0.05 : 0;
     } else if (st.mode === 'summon') {
       // 呼ばれた位置（画面の中央上）へ飛ぶ。目が動いても画面上の同じ位置に留まるよう、毎回計算し直す
       const eye = view?.liveEye ?? view?.eye;
@@ -961,6 +1020,7 @@ function robotWander(model, item) {
       st.yawTarget = travelYaw;
       st.pitchTarget = 0;
       st.timer -= dt;
+      st.carrying = false; // 画面の外に出たら、紙はしまう
       if (st.timer <= 0) planCrossing();
     } else if (st.mode === 'move') {
       const goal = st.stopAt !== null ? outL + (outR - outL) * st.stopAt : st.dir > 0 ? outR : outL;
@@ -1013,7 +1073,7 @@ function robotWander(model, item) {
       hop = Math.abs(Math.sin(p * 7.5)) * 0.11 * Math.exp(-p * 2.6);
       roll = Math.sin(p * 17) * 0.32 * Math.exp(-p * 3.2);
       blink = Math.exp(-p * 3.5);
-      if (p < 0.55 && st.mode !== 'summon') {
+      if (p < 0.55 && st.mode !== 'summon' && st.mode !== 'deliver') {
         st.yawTarget = 0;
         st.pitchTarget = -0.18; // 少し見上げる（びっくり）
       }
@@ -1030,15 +1090,15 @@ function robotWander(model, item) {
     st.pitch = damp(st.pitch, st.pitchTarget, rate, dt);
     st.roll = damp(st.roll, st.rollTarget, 3.2, dt);
     // のぞき込み以外は、通り道の奥行きへなめらかに戻る
-    if (st.mode !== 'peek') st.pz = damp(st.pz, z, 2, dt);
+    if (st.mode !== 'peek' && st.mode !== 'deliver') st.pz = damp(st.pz, z, st.carrying ? 1.2 : 2, dt);
 
     // 普段の高さ。呼ばれた後は、ここへゆっくり戻る
     if (st.y === null) st.y = e.y;
-    else if (st.mode !== 'summon' && st.mode !== 'peek') st.y = damp(st.y, e.y, 1.5, dt);
+    else if (st.mode !== 'summon' && st.mode !== 'peek' && st.mode !== 'deliver') st.y = damp(st.y, e.y, 1.5, dt);
 
     // 進むときに少し前のめり。映している間は揺れを小さくする
     const lean = Math.min(1, st.speed / WANDER.speed);
-    const bob = st.mode === 'summon' && st.arrived ? 0.35 : 1;
+    const bob = (st.mode === 'summon' || st.mode === 'deliver') && st.arrived ? (st.mode === 'deliver' ? 0.2 : 0.35) : 1;
     const still = st.mode === 'peek' && st.peek?.phase !== 'in' && st.peek?.phase !== 'out' ? 0.3 : 1;
     body.position.set(st.x, st.y + (Math.sin(t * 0.9) * 0.06 + Math.sin(t * 0.37) * 0.03) * bob * still + hop, st.pz);
     body.rotation.set(0, st.yaw, 0);
@@ -1063,14 +1123,35 @@ function robotWander(model, item) {
     },
     summon(sx, sy) {
       if (st.mode === 'peek') st.peek = null;
+      st.carrying = false;
+      st.deliver = null;
       st.summon = { sx, sy };
       st.arrived = false;
       st.curious = false;
       st.mode = 'summon';
     },
     // 呼び出しを解いて、近い方の画面の端から出て行かせる（そのまま普段の往復に戻る）
+    // Goods の紙を持ってくる。size: { width, depth }（goodsPaper.js の size）
+    deliver(paperSize) {
+      if (st.mode === 'peek') st.peek = null;
+      st.deliver = paperSize;
+      st.carrying = true;
+      st.arrived = false;
+      st.curious = false;
+      st.summon = null;
+      st.speed = Math.min(st.speed, 0.3);
+      st.mode = 'deliver';
+    },
+    carry,
+    get carrying() {
+      return st.carrying;
+    },
+    get delivering() {
+      return st.mode === 'deliver';
+    },
     release(view) {
-      if (st.mode !== 'summon') return;
+      if (st.mode === 'deliver') st.deliver = null;
+      else if (st.mode !== 'summon') return;
       const center = view ? view.win.cx : 0;
       st.dir = st.x >= center ? 1 : -1;
       st.mode = 'move';

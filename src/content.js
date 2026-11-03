@@ -18,6 +18,14 @@ export const ABOUT = {
   fill: ['QUIMAGLET'],
 };
 
+// Goods を選んだときに、ロボットが持ってくる紙のメニュー（goodsPaper.js）。
+// items: { name, status, price, note, image, url }
+export const GOODS = {
+  title: 'Goods',
+  body: '',
+  items: [],
+};
+
 // 2 台目のロボットが奥の壁（メニューの下）に映す、最新のお知らせ（newsProjector.js）。
 // image は画像の URL か public/ に置いた画像のパス（例: 'images/news-latest.jpg'）。空なら仮のサムネイルを描く
 export const LATEST_NEWS = {
@@ -60,6 +68,7 @@ export function applyContent(data) {
     const g = pages.goods;
     if (g.title) SECTIONS.goods.title = g.title;
     const items = (g.items ?? []).filter((it) => it.name);
+    Object.assign(GOODS, { title: g.title || 'Goods', body: g.body ?? '', items });
     SECTIONS.goods.body = textToHtml(g.body ?? '') + (items.length ? `<ul class="goods-list">${items.map(goodsItem).join('')}</ul>` : '');
   }
   const news = (data?.news ?? []).filter((n) => n.title || n.body);

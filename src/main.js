@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CONFIG } from './config.js';
 import { createAboutView } from './aboutView.js';
-import { SECTIONS, loadContent } from './content.js';
+import { GOODS, SECTIONS, loadContent } from './content.js';
+import { createGoodsPaper } from './goodsPaper.js';
 import { createHotspots } from './hotspots.js';
 import { createInput, isTouchDevice } from './input.js';
 import { createPanel } from './panel.js';
@@ -358,7 +359,7 @@ const panel = createPanel(SECTIONS, {
     document.body.classList.remove('is-holo');
     room.robot?.release({ win });
   },
-  onClose: () => !zoom.target && !holo.pending && !about.isOpen && hotspots.setEnabled(true),
+  onClose: () => !zoom.target && !holo.pending && !about.isOpen && !goods.open && hotspots.setEnabled(true),
 });
 
 // About だけは、ホログラムではなく画面いっぱいの文字で見せる（aboutView.js）。
@@ -373,9 +374,77 @@ const about = createAboutView({
   onClose: () => {
     document.body.classList.remove('is-about');
     room.robot?.setPeek?.(false);
-    if (!zoom.target && !panel.isOpen && !holo.pending) hotspots.setEnabled(true);
+    if (!zoom.target && !panel.isOpen && !holo.pending && !goods.open) hotspots.setEnabled(true);
   },
 });
+
+// ---------- Goods ----------
+// Goods だけは、ロボットが底のマグネットに紙のメニューを吊るして、目の前の読みやすい所まで持ってくる（goodsPaper.js）。
+// 紙の外を押すか Esc で、紙を巻き上げて帰っていく。紙の中の ONLINE STORE を押すと購入ページを開く
+const goodsPaper = createGoodsPaper();
+goodsPaper.group.visible = false;
+room.robot?.carry?.add(goodsPaper.group);
+const goodsReady = goodsPaper.draw(GOODS);
+const goodsSr = document.getElementById('goods-sr');
+const goods = { open: false, releaseIn: -1 };
+const GOODS_ROLL_UP = 0.55; // 閉じるとき、紙を巻き上げてから帰るまで（秒）
+
+async function openGoods() {
+  if (!room.robot?.carry) return panel.open('goods'); // ロボットがいない部屋では、ほかと同じパネルで見せる
+  zoomOut();
+  hotspots.setEnabled(false);
+  goods.open = true;
+  goods.releaseIn = -1;
+  document.body.classList.add('is-goods'); // 紙に重なる IMMERSE ボタンを隠す
+  history.replaceState(null, '', '#goods');
+  await goodsReady;
+  if (!goods.open) return;
+  room.robot.deliver(goodsPaper.size);
+  // 読み上げ・キーボード用に、同じ中身を見えない文章でも置く（購入ページのリンクもここから辿れる）
+  goodsSr.innerHTML = `<h2>${SECTIONS.goods.title}</h2>${SECTIONS.goods.body}`;
+  goodsSr.hidden = false;
+  goodsSr.focus({ preventScroll: true });
+}
+
+function closeGoods() {
+  if (!goods.open) return;
+  goods.open = false;
+  goods.releaseIn = GOODS_ROLL_UP;
+  goodsSr.hidden = true;
+  document.body.classList.remove('is-goods');
+  history.replaceState(null, '', location.pathname + location.search);
+  if (!zoom.target && !panel.isOpen && !holo.pending && !about.isOpen) hotspots.setEnabled(true);
+}
+
+// ほかのメニューを選んだときは、巻き上げを待たずにすぐ帰す
+function dropGoods() {
+  if (!goods.open && goods.releaseIn < 0) return;
+  closeGoods();
+  goods.releaseIn = -1;
+  room.robot?.release({ win });
+}
+
+function updateGoods(dt) {
+  if (goods.releaseIn >= 0 && (goods.releaseIn -= dt) <= 0) {
+    goods.releaseIn = -1;
+    room.robot?.release({ win });
+  }
+  const robot = room.robot;
+  goodsPaper.update(dt, {
+    visible: !!robot?.carrying,
+    open: goods.open && !!robot?.delivering && !!robot?.arrived,
+  });
+}
+
+function hitGoodsPaper(x, y) {
+  const paperMesh = goodsPaper.paper;
+  if (!paperMesh || !goodsPaper.group.visible) return null;
+  robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  robotRay.setFromCamera(robotNdc, camera);
+  return robotRay.intersectObject(paperMesh, false)[0] ?? null;
+}
+
+addEventListener('keydown', (e) => e.key === 'Escape' && closeGoods());
 
 // ---------- ロボットを押す ----------
 // クリック・タップすると、ぴょんと跳ねて首を振り、こちらを見る（studioRoom.js の poke）
@@ -409,6 +478,16 @@ addEventListener('pointerup', (e) => {
   const moved = Math.hypot(e.clientX - robotDown.x, e.clientY - robotDown.y);
   robotDown = null;
   if (moved > 8) return;
+  if (goods.open) {
+    // 紙の中ならリンクだけ、ロボットなら跳ねる、それ以外（紙の外）を押したら閉じる
+    const hit = hitGoodsPaper(e.clientX, e.clientY);
+    if (hit) {
+      const url = goodsPaper.linkAt(hit.uv);
+      if (url) window.open(url, '_blank', 'noopener');
+    } else if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
+    else closeGoods();
+    return;
+  }
   if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
   else if (hitMoon(e.clientX, e.clientY)) room.planetarium.toggle();
 });
@@ -419,8 +498,9 @@ addEventListener('pointermove', (e) => {
 function updateRobotHover() {
   if (!robotPointer?.dirty) return;
   robotPointer.dirty = false;
-  const over =
-    !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitMoon(robotPointer.x, robotPointer.y));
+  const over = goods.open
+    ? !!goodsPaper.linkAt(hitGoodsPaper(robotPointer.x, robotPointer.y)?.uv)
+    : !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitMoon(robotPointer.x, robotPointer.y));
   if (over === robotHovered) return;
   robotHovered = over;
   document.body.style.cursor = over ? 'pointer' : '';
@@ -442,6 +522,18 @@ const emitterPos = new THREE.Vector3();
 
 function requestSection(id) {
   if (!SECTIONS[id]) return;
+  if (id === 'goods') {
+    if (goods.open) return;
+    if (holo.pending) {
+      holo.pending = null;
+      holo.beamTo = 0;
+    }
+    if (panel.isOpen) panel.close();
+    if (about.isOpen) about.close();
+    openGoods();
+    return;
+  }
+  dropGoods();
   if (id === 'about') {
     // ロボットを呼んでいる途中・ほかのページを映している途中なら、やめてから開く
     if (holo.pending) {
@@ -583,8 +675,9 @@ renderer.setAnimationLoop(() => {
   hotspots.update(dt);
   updateRobotHover();
   updateHologram(dt, t);
+  updateGoods(dt);
   // ほかのメニューを開いている（呼んでいる・ズームしている）間は、お知らせのロボットを画面の外へはけさせる
-  room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen);
+  room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen || goods.open);
   renderer.render(scene, camera);
 });
 

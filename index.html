@@ -10,7 +10,9 @@
     <!-- 奥の壁の落書きメニューの字体（src/wallMenu.js） -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Permanent+Marker&display=block" />
     <!-- About の画面いっぱいの文字（src/aboutView.js） -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700;900&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700;900&display=swap" />
+    <!-- Goods の紙のメニューのタイプライターの字（src/goodsPaper.js） -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -60,6 +62,9 @@
     <button type="button" id="zoom-back" class="zoom-back" hidden>← 戻る</button>
 
     <div id="tooltip" class="tooltip" hidden></div>
+
+    <!-- Goods の紙のメニューの中身（読み上げとキーボード操作用。見た目は 3D の紙。src/main.js） -->
+    <div id="goods-sr" class="sr-only" role="dialog" aria-modal="true" aria-label="Goods" tabindex="-1" hidden></div>
 
     <div id="panel-scrim" class="panel-scrim" hidden></div>
     <canvas id="holo-beam" class="holo-beam" aria-hidden="true"></canvas>
