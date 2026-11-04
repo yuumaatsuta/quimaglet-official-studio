@@ -236,6 +236,14 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
       // 映し直す：一瞬弱まって、ちらつきながら戻る
       st.on = Math.min(st.on, 0.35);
     },
+    // 投影面の uv（左下 0,0・右上 1,1）にあるもの：{ go: 'prev' | 'list' | 'next' } か { url } か null
+    actionAt(uv) {
+      return st.reading && uv ? card.actionAt(uv) : null;
+    },
+    // マウスが乗っているボタン（明るくする）
+    hover(go) {
+      card.hover(go);
+    },
   };
 }
 
@@ -249,6 +257,12 @@ function drawCard() {
   const font = (w, px) => `${w} ${px}px Inter, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif`;
   const images = new Map(); // 画像の URL → 読み込んだ画像（読み込み中は null）
   let current = null;
+  // 本文を読むときに押せる所（組む大きさ W×H の座標）。links：本文中の URL、buttons：下の 3 つのボタン
+  let size = { W: 1, H: 1 };
+  let links = [];
+  let buttons = [];
+  let hovered = null;
+  const LINK_COLOR = '#9fe2ff';
 
   // 画像を読み込んで、読めたら描き直す。外の画像（URL）も使えるが、CORS を許可していない所の画像は読めない（仮のサムネイルのまま）
   function imageFor(src) {
@@ -266,45 +280,74 @@ function drawCard() {
   }
 
   // 折り返し。英語は単語の切れ目で、日本語は 1 文字ずつ。長い URL などは途中で折る。
-  // paint=false なら描かずに行数だけ数える。maxLines に達したら最後の行を … で切る
-  function wrap(text, x, y, maxW, lineH, maxLines = Infinity, paint = true) {
-    const tokens = String(text).match(/[A-Za-z0-9'’.,:;!?\-/@#%&_=+~()"$*]+\s*|\s+|./gu) ?? [];
-    let line = '';
+  // paint=false なら描かずに行数だけ数える。maxLines に達したら最後の行を … で切る。
+  // linkify=true なら URL を色付き・下線で描き、押せる所として控える
+  function wrap(text, x, y, maxW, lineH, maxLines = Infinity, paint = true, linkify = false) {
+    const tokens = String(text).match(/https?:\/\/[^\s<>"'、。「」）]+\s*|[A-Za-z0-9'’.,:;!?\-/@#%&_=+~()"$*]+\s*|\s+|./gu) ?? [];
+    let line = []; // [{ t: 文字, url }]
     let lines = 0;
-    const emit = (l, last) => {
+    const str = (l) => l.map((p) => p.t).join('');
+    const push = (l, t, url) => {
+      const last = l[l.length - 1];
+      if (last && last.url === url) last.t += t;
+      else l.push({ t, url });
+    };
+    const emit = (l, cut) => {
       lines++;
-      if (paint) ctx.fillText(last ? `${l.replace(/\s+$/, '').slice(0, -1)}…` : l, x, y);
+      if (paint) {
+        if (cut) {
+          const last = l[l.length - 1];
+          last.t = `${last.t.replace(/\s+$/, '').slice(0, -1)}…`;
+        }
+        let xx = x;
+        const base = ctx.fillStyle;
+        for (const p of l) {
+          const w = ctx.measureText(p.t).width;
+          if (p.url) {
+            const tw = ctx.measureText(p.t.replace(/\s+$/, '')).width;
+            ctx.fillStyle = LINK_COLOR;
+            ctx.fillText(p.t, xx, y);
+            ctx.fillRect(xx, y + lineH * 0.66, tw, Math.max(2, lineH * 0.04));
+            links.push({ url: p.url, x0: xx, y0: y - lineH * 0.15, x1: xx + tw, y1: y + lineH * 0.85 });
+            ctx.fillStyle = base;
+          } else ctx.fillText(p.t, xx, y);
+          xx += w;
+        }
+      }
       y += lineH;
     };
     for (let i = 0; i < tokens.length; i++) {
       let tok = tokens[i];
-      if (ctx.measureText(line + tok).width <= maxW) {
-        line += tok;
+      const url = linkify && /^https?:\/\//.test(tok) ? tok.trim() : null;
+      // 句読点や閉じかっこは行の頭に来ないよう、はみ出しても前の行に付ける
+      const tail = /^[、。，．,.」』）)！？!?ー・…]/.test(tok) && str(line).trim();
+      if (tail || ctx.measureText(str(line) + tok).width <= maxW) {
+        push(line, tok, url);
         continue;
       }
-      if (line.trim()) {
+      if (str(line).trim()) {
         if (lines + 1 >= maxLines) {
           emit(line, true);
           return { y, lines, cut: true };
         }
         emit(line);
       }
-      line = '';
+      line = [];
       tok = tok.replace(/^\s+/, '');
       // 1 行に入らない長いかたまりは文字で折る
       while (ctx.measureText(tok).width > maxW) {
         let n = 1;
         while (n < tok.length && ctx.measureText(tok.slice(0, n + 1)).width <= maxW) n++;
         if (lines + 1 >= maxLines) {
-          emit(tok.slice(0, n), true);
+          emit([{ t: tok.slice(0, n), url }], true);
           return { y, lines, cut: true };
         }
-        emit(tok.slice(0, n));
+        emit([{ t: tok.slice(0, n), url }]);
         tok = tok.slice(n);
       }
-      line = tok;
+      if (tok) line = [{ t: tok, url }];
     }
-    if (line.trim()) emit(line);
+    if (str(line).trim()) emit(line);
     return { y, lines, cut: false };
   }
 
@@ -326,7 +369,7 @@ function drawCard() {
         }
         const left = Math.floor((y + maxH - yy) / lh);
         if (left < 1) break;
-        const r = wrap(p, x, yy, maxW, lh, left);
+        const r = wrap(p, x, yy, maxW, lh, left, true, true);
         yy = r.y;
         if (r.cut) break;
       }
@@ -442,12 +485,68 @@ function drawCard() {
     finish(W, H);
   }
 
-  // 本文を読むときの 1 件。横長なら画像は左上・タイトルはその右、縦長なら画像を上に横いっぱい
+  // 下のボタン（前の記事・News 一覧・次の記事）。壁に映った光の枠として描く。押せる所は buttons に控える
+  function drawButtons(W, H, m, portrait, index, total) {
+    const items = [
+      { go: 'prev', label: '← 前の記事', disabled: index >= total - 1 },
+      { go: 'list', label: 'News 一覧', disabled: false },
+      { go: 'next', label: '次の記事 →', disabled: index <= 0 },
+    ];
+    const bh = portrait ? 116 : 78;
+    const gap = portrait ? 16 : 24;
+    let px = portrait ? 40 : 32;
+    let pad = portrait ? 26 : 34;
+    const widths = () => {
+      ctx.font = font(700, px);
+      return items.map((b) => ctx.measureText(b.label).width + pad * 2);
+    };
+    let ws = widths();
+    while (ws.reduce((a, b) => a + b, 0) + gap * 2 > W - m * 2 && px > 20) {
+      px -= 2;
+      pad = Math.max(16, pad - 2);
+      ws = widths();
+    }
+    const total_w = ws.reduce((a, b) => a + b, 0) + gap * 2;
+    let x = (W - total_w) / 2;
+    const y = H - m - bh + (portrait ? 8 : 12);
+    buttons = [];
+    items.forEach((b, i) => {
+      const w = ws[i];
+      const on = hovered === b.go && !b.disabled;
+      ctx.globalAlpha = b.disabled ? 0.28 : 1;
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = on ? 'rgba(150, 210, 255, 0.38)' : 'rgba(120, 190, 255, 0.14)';
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, bh, bh / 2);
+      ctx.fill();
+      ctx.strokeStyle = on ? 'rgba(235, 248, 255, 0.95)' : 'rgba(170, 220, 255, 0.75)';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = 'rgba(120, 190, 255, 0.9)';
+      ctx.shadowBlur = on ? 18 : 10;
+      ctx.stroke();
+      glow(on ? 14 : 8, '#ffffff');
+      ctx.font = font(700, px);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(b.label, x + w / 2, y + bh / 2 + 1);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.globalAlpha = 1;
+      if (!b.disabled) buttons.push({ go: b.go, x0: x, y0: y, x1: x + w, y1: y + bh });
+      x += w + gap;
+    });
+    ctx.shadowBlur = 0;
+    return y;
+  }
+
+  // 本文を読むときの 1 件。横長なら画像は左上・タイトルはその右、縦長なら画像を上に横いっぱい。いちばん下にボタン
   function drawArticle({ article, aspect, index, total }) {
     const portrait = aspect < 1;
     const W = portrait ? 860 : 1280;
     const H = Math.round(W / aspect);
     setup(W, H, portrait ? 2 : 1.5);
+    size = { W, H };
+    links = [];
     ground(W, H);
     const m = portrait ? 52 : 64;
     // 見出しの行：NEWS・日付・何件目か
@@ -493,19 +592,42 @@ function drawCard() {
     ctx.fillStyle = 'rgba(200, 230, 255, 0.6)';
     ctx.fillRect(m, y, 120, 4);
     y += 34;
+    const by = drawButtons(W, H, m, portrait, index, total);
     glow(8, '#ffffff');
-    body(article.body ?? '', m, y, W - m * 2, H - y - m, portrait ? [44, 40, 36, 32, 29, 26] : [44, 40, 36, 33, 30, 27, 24]);
+    body(article.body ?? '', m, y, W - m * 2, by - y - (portrait ? 30 : 26), portrait ? [44, 40, 36, 32, 29, 26] : [44, 40, 36, 33, 30, 27, 24]);
     finish(W, H);
+  }
+
+  // uv にあるボタンかリンク（押しやすいよう、少し広めに取る）
+  function actionAt(uv) {
+    const x = uv.x * size.W;
+    const y = (1 - uv.y) * size.H;
+    const inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && y >= r.y0 - m && y <= r.y1 + m;
+    const b = buttons.find((r) => inside(r, 10));
+    if (b) return { go: b.go };
+    const l = links.find((r) => inside(r, 8));
+    return l ? { url: l.url } : null;
+  }
+
+  function hover(go) {
+    if ((go ?? null) === hovered) return;
+    hovered = go ?? null;
+    if (current) draw(current);
   }
 
   function draw(what) {
     current = what;
     if (what) drawArticle(what);
-    else drawLatest();
+    else {
+      links = [];
+      buttons = [];
+      hovered = null;
+      drawLatest();
+    }
     texture.needsUpdate = true;
   }
 
-  const api = { texture, draw, onTexture: null };
+  const api = { texture, draw, actionAt, hover, onTexture: null };
   draw(null);
   return api;
 }

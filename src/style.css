@@ -724,7 +724,13 @@ body.is-about-scrolled .site-header .logo {
   letter-spacing: 0.06em;
 }
 
-/* 壁の本文を読んでいる間の、下のボタン */
+/* 壁の本文を読んでいる間の、下のボタン。見た目のボタンは投影の中に描くので、これはキーボード・読み上げ用。
+   ふだんは見えず、キーボードで選んだときだけ下に出る */
+.news-nav:not(:has(:focus-visible)) {
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
 .news-nav {
   position: fixed;
   left: 50%;

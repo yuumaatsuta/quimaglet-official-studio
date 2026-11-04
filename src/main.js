@@ -507,8 +507,9 @@ function goodsPxPerScreenPx() {
 
 // ---------- お知らせを読む ----------
 // 一覧は 1 台目のロボットのホログラム（News のパネル）。記事を押すと、2 台目のロボットが映している壁に近づき、
-// その記事の本文を映してもらって読む。下に、前の記事・News 一覧・次の記事のボタンが出る。
-// 壁の投影（最新のお知らせ）を直接押しても、その記事を読める
+// その記事の本文を映してもらって読む。前の記事・News 一覧・次の記事のボタンも、本文の URL も、投影の中にあって押せる。
+// 投影の外を押すと閉じる。壁の投影（最新のお知らせ）を直接押しても、その記事を読める。
+// （#news-nav はキーボードと読み上げ用。見た目は投影の中のボタン）
 const news = { index: -1, aspect: 0 };
 const newsNav = document.getElementById('news-nav');
 const newsLink = newsNav.querySelector('.news-nav-link');
@@ -529,7 +530,7 @@ function newsTop() {
   return (logo ? logo.getBoundingClientRect().bottom : 60) + 6;
 }
 function newsBottom() {
-  return newsNav.hidden ? 80 : innerHeight - newsNav.getBoundingClientRect().top + 10;
+  return 16;
 }
 
 function showNews(i) {
@@ -565,7 +566,6 @@ function openNews(i) {
   document.body.classList.add('is-news');
   zoomToObject(p.screen, { margin: NEWS_READ.margin, top: newsTop, bottom: newsBottom });
   zoomBack.hidden = true;
-  newsNav.querySelector('[data-news-go="list"]').focus({ preventScroll: true });
 }
 
 // 読むのをやめる（ズームを戻すのは zoomOut）
@@ -578,8 +578,8 @@ function endNews() {
   if (/^#news-\d+$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
 }
 
-newsNav.addEventListener('click', (e) => {
-  const go = e.target.closest('[data-news-go]')?.dataset.newsGo;
+newsNav.addEventListener('click', (e) => newsGo(e.target.closest('[data-news-go]')?.dataset.newsGo));
+function newsGo(go) {
   if (!go || news.index < 0) return;
   if (go === 'prev') showNews(Math.min(NEWS_LIST.length - 1, news.index + 1));
   else if (go === 'next') showNews(Math.max(0, news.index - 1));
@@ -588,7 +588,29 @@ newsNav.addEventListener('click', (e) => {
     zoomOut();
     requestSection('news');
   }
-});
+}
+
+// 読んでいる記事の投影のどこを指しているか（投影の外なら null）
+const newsUv = new THREE.Vector2();
+function hitNewsCard(x, y) {
+  const p = room.newsProjector;
+  if (!p || news.index < 0) return null;
+  robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  robotRay.setFromCamera(robotNdc, camera);
+  const hit = robotRay.intersectObject(p.screen, false)[0];
+  return hit?.uv ? newsUv.copy(hit.uv) : null;
+}
+// 投影の中のボタン・リンクを押す。投影の外なら閉じる
+function pressNews(x, y) {
+  const uv = hitNewsCard(x, y);
+  if (!uv) {
+    if (zoom.amount > 0.6) zoomOut();
+    return;
+  }
+  const a = room.newsProjector.actionAt(uv);
+  if (a?.url) window.open(a.url, '_blank', 'noopener');
+  else if (a?.go) newsGo(a.go);
+}
 addEventListener('keydown', (e) => {
   if (news.index < 0) return;
   if (e.key === 'ArrowLeft' && news.index < NEWS_LIST.length - 1) showNews(news.index + 1);
@@ -650,6 +672,10 @@ addEventListener('pointerup', (e) => {
   const moved = Math.hypot(e.clientX - robotDown.x, e.clientY - robotDown.y);
   robotDown = null;
   if (moved > 8) return;
+  if (news.index >= 0) {
+    pressNews(e.clientX, e.clientY);
+    return;
+  }
   if (goods.open) {
     if (!goodsAtDown) return; // 壁の GOODS を押して開いた、その押し上げ
     // 紙の中ならリンクだけ、ロボットなら跳ねる、それ以外（紙の外）を押したら閉じる
@@ -672,7 +698,15 @@ addEventListener('pointermove', (e) => {
 function updateRobotHover() {
   if (!robotPointer?.dirty) return;
   robotPointer.dirty = false;
-  const over = goods.open
+  let newsAction = null;
+  if (news.index >= 0) {
+    const uv = hitNewsCard(robotPointer.x, robotPointer.y);
+    newsAction = uv ? room.newsProjector.actionAt(uv) : null;
+    room.newsProjector.hover(newsAction?.go);
+  }
+  const over = news.index >= 0
+    ? !!newsAction
+    : goods.open
     ? !!goodsPaper.linkAt(hitGoodsPaper(robotPointer.x, robotPointer.y)?.uv)
     : !panel.isOpen &&
       (hitRobot(robotPointer.x, robotPointer.y) || hitMoon(robotPointer.x, robotPointer.y) || hitNewsWall(robotPointer.x, robotPointer.y));
