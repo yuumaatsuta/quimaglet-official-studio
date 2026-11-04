@@ -17,6 +17,12 @@ const PIECES = {
     h: 2102,
     ink: [[2532, 4, 345, 713], [1613, 801, 1252, 102], [4, 963, 2863, 347], [37, 1395, 2833, 491], [40, 1971, 2829, 131]],
   },
+  // 埋め草：画面が横に広く、美月さんと瑛太さんの塊が離れすぎたときだけ、そのあいだに出す（you弑me の一節）
+  lyric: { src: 'about-pc-lyric.webp', w: 1055, h: 2313, fill: true },
+};
+const LYRIC = {
+  minWidth: 110, // これより細くしか入らないなら出さない（px）
+  minRatio: 0.45, // ほかの絵の倍率のこれ未満にしか縮められないなら出さない（文字が小さすぎる）
 };
 const PHONE = { src: 'about-sp.webp', w: 1088, h: 9537 };
 const PC_MIN_SCALE = 0.2; // これより小さく縮めないと収まらない画面では、スマホ用の縦長の絵にする
@@ -48,7 +54,8 @@ const TEXT = `
 <h3>Key. 浅葉 瑛太（作詞・作曲 / 編曲）</h3>
 <p>From a young age, I was intensely preoccupied with the question of why we live, and I went through life harboring a persistent, underlying sense of fear. In hindsight, I realize I grew up in a rather "cushy" environment—one where "happiness" was always close at hand. My family background, in fact, allowed me to take for granted a wide range of experiences. Above all, it was the opportunity to learn the piano that, I believe, shaped me into the musician I am today.</p>
 <p>Through the various failures I experienced during my student years, I came to realize that I am, in essence, "nobody"—someone who simply happened to be born to exceptional parents capable of bringing happiness into my immediate life. Since then, the very concept of "self-affirmation" has vanished from my vocabulary; at times, I even feel that my life lacks any inherent value. Because I am unable to love myself and have anchored my purpose for living in others, I consider myself a fragile person. I rely solely on the judgment of those around me, and I am frequently tossed about by an unattainable desire—the longing to be someone's "special" person.</p>
-<p>Because I myself constantly live with such a sense of loneliness, I write my songs with the hope that they—infused with my own deepest feelings—will reach others who carry that same loneliness.</p>`;
+<p>Because I myself constantly live with such a sense of loneliness, I write my songs with the hope that they—infused with my own deepest feelings—will reach others who carry that same loneliness.</p>
+<p>I thought I was the one in control, but I became ensnared by words—losing the very things I meant to cherish by lumping them all together under labels like "love." It feels so hollow when words and intentions fail to align. I kept tuning in, frame by frame—even on the days when I couldn't quite get a grip—just to ensure I wouldn't miss a single one of your signals or the messages you sent my way.</p>`;
 
 export function createAboutView({ onOpen, onClose } = {}) {
   const base = import.meta.env.BASE_URL;
@@ -128,6 +135,26 @@ export function createAboutView({ onOpen, onClose } = {}) {
     return at;
   }
 
+  // 美月さん（左下）と瑛太さん（右下）のあいだの空き。広ければ一節の絵を置く場所 [x, y, 倍率] を、狭ければ null を返す
+  function placeLyric(at, k, box) {
+    const P = PIECES;
+    const L = P.lyric;
+    const g = box.gap * 2;
+    const x0 = at.mizuki[0] + P.mizuki.w * k + g;
+    const x1 = at.asaba[0] + Math.min(...P.asaba.ink.map((r) => r[0])) * k - g;
+    const above = Math.max(at.center[1] + P.center.h * k, at.title[1] + P.title.h * k, at.atsuta[1] + P.atsuta.h * k);
+    const y0 = above + g;
+    const y1 = box.b;
+    const s = Math.min(k, (x1 - x0) / L.w, (y1 - y0) / L.h);
+    if (s <= 0 || L.w * s < LYRIC.minWidth || s < k * LYRIC.minRatio) return null;
+    const w = L.w * s;
+    const h = L.h * s;
+    // 横は空きのまんなか、縦は美月さんの絵と高さのまんなかをそろえる（空きからははみ出さない）
+    const mid = at.mizuki[1] + (P.mizuki.h * k) / 2;
+    const y = Math.min(Math.max(mid - h / 2, y0), y1 - h);
+    return [(x0 + x1 - w) / 2, y, s];
+  }
+
   // 文字の塊どうし・ロゴや設定ボタンと重ならず、画面からはみ出さないか
   function fits(k, box, beside) {
     const at = placePieces(k, box, beside);
@@ -186,13 +213,18 @@ export function createAboutView({ onOpen, onClose } = {}) {
     if (mode === 'pc') {
       page.style.padding = '';
       const at = placePieces(k, box, beside);
+      const lyric = placeLyric(at, k, box);
+      if (lyric) at.lyric = lyric;
       for (const [name, el] of Object.entries(pieceEls)) {
         const p = PIECES[name];
+        el.hidden = !at[name];
+        if (!at[name]) continue;
+        const [x, y, s = k] = at[name];
         setSrc(el, p.src);
-        el.style.width = `${(p.w * k).toFixed(1)}px`;
-        el.style.height = `${(p.h * k).toFixed(1)}px`;
-        el.style.left = `${at[name][0].toFixed(1)}px`;
-        el.style.top = `${at[name][1].toFixed(1)}px`;
+        el.style.width = `${(p.w * s).toFixed(1)}px`;
+        el.style.height = `${(p.h * s).toFixed(1)}px`;
+        el.style.left = `${x.toFixed(1)}px`;
+        el.style.top = `${y.toFixed(1)}px`;
       }
     } else {
       setSrc(phoneEl, PHONE.src);
@@ -329,7 +361,7 @@ export function createAboutView({ onOpen, onClose } = {}) {
     });
   }
   function onInk(e) {
-    const els = mode === 'pc' ? Object.values(pieceEls) : [phoneEl];
+    const els = mode === 'pc' ? Object.values(pieceEls).filter((el) => !el.hidden) : [phoneEl];
     for (const el of els) {
       const r = el.getBoundingClientRect();
       const u = (e.clientX - r.left) / r.width;

@@ -622,6 +622,9 @@ body.is-goods .hero {
 .about-piece {
   position: absolute;
 }
+.about-piece[hidden] {
+  display: none;
+}
 .about-phone {
   margin: 0 auto;
 }
