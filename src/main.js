@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { createAdaptiveResolution } from './adaptiveResolution.js';
 import { CONFIG } from './config.js';
 import { createAboutView } from './aboutView.js';
 import { GOODS, NEWS_LIST, SECTIONS, loadContent } from './content.js';
@@ -19,7 +20,8 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const bootLabel = document.getElementById('boot-label');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+const maxPixelRatio = Math.min(devicePixelRatio, 1.75);
+renderer.setPixelRatio(maxPixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -33,11 +35,18 @@ scene.background = new THREE.Color('#000');
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
-// 文章とお知らせ（public/content.json。管理画面 /admin/ で書き換える）。部屋より先に読む（お知らせの投影に使う）
-await loadContent();
-const room = await loadRoom(CONFIG.modelUrl, (p) => {
-  bootLabel.textContent = `LOADING... ${Math.floor(p * 100)}%`;
-});
+// 読み込みの表示。ファイルのダウンロードで 90% まで、残りはシェーダーの組み立て（precompile）
+let bootShown = 0;
+function onBootProgress(p) {
+  bootShown = Math.max(bootShown, Math.floor(p * 90));
+  bootLabel.textContent = `LOADING... ${bootShown}%`;
+}
+
+// 文章とお知らせ（backend/ の API。読めなければ public/content.json）。
+// 部屋のモデルと同時に読み始め、壁のメニューとお知らせを作る直前に待つ（studioRoom.js）
+const contentReady = loadContent().then(() => performance.mark('q:content'));
+const room = await loadRoom(CONFIG.modelUrl, onBootProgress, contentReady);
+performance.mark('q:room');
 scene.add(room.group);
 // 部屋ごとの見え方の上書き（目線の高さ・画角など）
 const view = { ...CONFIG.view, ...room.view };
@@ -191,8 +200,37 @@ if (room.weatherRig) {
     onSettled: () => captureEnvironment(true),
   });
 }
+// 描く前に、すべての材質のシェーダーをまとめて組み立てておく。
+// 何もしないと、最初に描くときに 1 つずつ組み立てるので、その間（Windows では十数秒）画面が止まる。
+// まとめて渡すと GPU 側で並べて組み立て、待つ間も読み込み画面は動く。
+// 周囲を撮るとき（描き先が画像）と画面に描くときでは、同じ材質でも別のシェーダーになるので両方作る。
+// 組み立ての進み具合はわからないので、表示は 99% へ向けて少しずつ進める
+onBootProgress(1);
+const creep = setInterval(() => {
+  bootShown += (99 - bootShown) * 0.25;
+  bootLabel.textContent = `LOADING... ${Math.floor(bootShown)}%`;
+}, 400);
+await precompile();
+clearInterval(creep);
+bootLabel.textContent = 'LOADING... 100%';
+performance.mark('q:compiled');
 setShutter(shutterOpen, false);
 captureEnvironment();
+performance.mark('q:env');
+
+async function precompile() {
+  setShutter(1, false); // 開いたときにだけ見える物も含める
+  const jobs = [];
+  renderer.setRenderTarget(cubeTarget, 0);
+  jobs.push(renderer.compileAsync(scene, cubeCamera.children[0]));
+  renderer.setRenderTarget(null);
+  jobs.push(renderer.compileAsync(scene, camera));
+  try {
+    await Promise.all(jobs);
+  } catch (e) {
+    console.info('[boot] シェーダーの先読みに失敗しました（描くときに組み立てます）', e);
+  }
+}
 
 if (weather) {
   // 最初の 1 回はすぐに切り替え、以降はなめらかに移り変わらせる
@@ -851,8 +889,27 @@ function drawBeam(flicker) {
 
 // ---------- ループ ----------
 
+// ?perf を付けると、1 フレームの描画の量を window.__perf に数える（重さを測るとき用）
+const perf = new URLSearchParams(location.search).has('perf') ? { frames: 0, calls: 0, triangles: 0, ms: 0 } : null;
+if (perf) {
+  renderer.info.autoReset = false;
+  window.__perf = perf;
+  Object.defineProperty(perf, 'three', { value: { THREE, scene, renderer, camera } });
+}
+
+// GPU が追いつかない端末でだけ、描く解像度を下げる（adaptiveResolution.js）
+// ?res=1 のように付けると解像度を固定する（重さを測るとき用）
+const fixedRes = Number(new URLSearchParams(location.search).get('res'));
+if (fixedRes) renderer.setPixelRatio(fixedRes);
+const resolution = fixedRes
+  ? { ratio: fixedRes, frame() {} }
+  : createAdaptiveResolution(renderer, { max: maxPixelRatio, min: Math.max(0.6, maxPixelRatio * 0.6) });
+
 const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop((now) => {
+  resolution.frame(now);
+  const start = perf && performance.now();
+  if (perf) renderer.info.reset();
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
@@ -889,6 +946,14 @@ renderer.setAnimationLoop(() => {
   // （お知らせを読んでいる間は、newsProjector.read で映し続ける）
   room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen || goods.open);
   renderer.render(scene, camera);
+  if (perf) {
+    if (!perf.frames) performance.mark('q:frame');
+    perf.frames++;
+    perf.ratio = resolution.ratio;
+    perf.calls += renderer.info.render.calls;
+    perf.triangles += renderer.info.render.triangles;
+    perf.ms += performance.now() - start;
+  }
 });
 
 // ---------- 起動完了 ----------

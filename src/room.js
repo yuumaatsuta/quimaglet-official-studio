@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { gltfLoader } from './gltf.js';
 import { tagHotspot } from './hotspots.js';
 import { buildStudioRoom } from './studioRoom.js';
 
@@ -11,13 +10,14 @@ import { buildStudioRoom } from './studioRoom.js';
 //   （手前の位置がずれていても読み込み時に z = 0 へ合わせる）
 // - クリックさせたい物は `hs_about` のように `hs_` + content.js のキーで名前を付ける
 //   （親の Empty に付ければ子のメッシュもまとめて対象になる）
-export async function loadRoom(url, onProgress) {
-  if (!(await exists(url))) return buildStudioRoom(onProgress);
+export async function loadRoom(url, onProgress, contentReady) {
+  if (!(await exists(url))) return buildStudioRoom(onProgress, contentReady);
 
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  const loader = gltfLoader();
   const gltf = await loader.loadAsync(url, (e) => {
     if (e.total) onProgress?.(e.loaded / e.total);
   });
+  await contentReady;
   const model = gltf.scene;
 
   const box = new THREE.Box3().setFromObject(model);

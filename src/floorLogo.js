@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MIRROR_REFRESH } from './floorMirror.js';
+import { gltfLoader } from './gltf.js';
 
 // 左手前の床に置いた、立体の QUIMAGLET。
 // 文字は public/models/logo-letters.glb（Inter Black を Blender で 1 文字ずつ立体にし、縁を小さく丸めたもの。
@@ -53,7 +54,7 @@ const PLACE = [
 ];
 
 export async function buildFloorLogo(manager) {
-  const gltf = await new GLTFLoader(manager).loadAsync(`${import.meta.env.BASE_URL}models/logo-letters.glb`);
+  const gltf = await gltfLoader(manager).loadAsync(`${import.meta.env.BASE_URL}models/logo-letters.glb`);
   const letters = [];
   gltf.scene.traverse((o) => o.isMesh && letters.push(o));
   letters.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -462,9 +463,15 @@ void main() {
   ];
   const clear = new THREE.Color();
   let frame = 0;
+  const lastEye = new THREE.Vector3(Infinity, 0, 0);
   plane.onBeforeRender = (renderer, scene, camera) => {
     // 照明も映り込みの描画に入れる（照明が増えたときのため、ときどき数え直す）
     if (frame++ % 120 === 0) scene.traverse((o) => o.isLight && o.layers.enable(MIRROR.layer));
+    // 目が止まっている間は前の絵を使う（映る物は動かない）。光の変わり目（雷・天気）は
+    // REFRESH フレームごとの描き直しで追いつく
+    camera.getWorldPosition(eye);
+    if (eye.distanceToSquared(lastEye) < 1e-10 && frame % MIRROR_REFRESH !== 0) return;
+    lastEye.copy(eye);
     // 床（y = 0）で鏡映しにした目から、板の中心を見る。板全体が入る画角にする
     camera.getWorldPosition(eye);
     virtual.position.set(eye.x, -eye.y, eye.z);

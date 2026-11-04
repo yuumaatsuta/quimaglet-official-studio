@@ -4,6 +4,9 @@ import * as THREE from 'three';
 // 映り込み：物の足元の床に寝かせた板に、床（y = 0）で鏡映しにした目から、その物だけを描いた画像を貼る。
 // 物と照明だけを描くので軽い。画像は低い解像度で描き、さらにぼかして、艶のある木の床らしくする
 
+// 目が止まっている間の、映り込みの描き直しの間隔（フレーム）
+export const MIRROR_REFRESH = 4;
+
 let nextLayer = 6; // 映り込みの描画で使うレイヤー（物ごとに 1 つ。1〜5 はほかで使用）
 
 //   object: 映す物（中のメッシュをまとめて映り込みのレイヤーに入れる）
@@ -122,9 +125,15 @@ void main() {
   const corner = new THREE.Vector3();
   const clear = new THREE.Color();
   let frame = 0;
+  const lastEye = new THREE.Vector3(Infinity, 0, 0);
   plane.onBeforeRender = (renderer, scene, camera) => {
     // 照明も映り込みの描画に入れる（照明が増えたときのため、ときどき数え直す）
     if (frame++ % 120 === 0) scene.traverse((o) => o.isLight && o.layers.enable(layer));
+    // 目が止まっている間は前の絵を使う（映る物は動かない）。光の変わり目（雷・天気）は
+    // REFRESH フレームごとの描き直しで追いつく
+    camera.getWorldPosition(eye);
+    if (eye.distanceToSquared(lastEye) < 1e-10 && frame % MIRROR_REFRESH !== 0) return;
+    lastEye.copy(eye);
     // 床で鏡映しにした目から、板の中心を見る。板全体が入る画角にする
     camera.getWorldPosition(eye);
     virtual.position.set(eye.x, -eye.y, eye.z);

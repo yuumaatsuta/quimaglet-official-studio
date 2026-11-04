@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf.js';
 import { LATEST_NEWS } from './content.js';
 
 // 2 台目のロボット。サイトを開いて少しすると画面の左から飛んできて、
@@ -29,7 +29,7 @@ const NEWS = {
 const EMITTER = new THREE.Vector3(0, 0.087, 0.27);
 
 export async function buildNewsProjector({ manager, wallZ, menu }) {
-  const gltf = await new GLTFLoader(manager).loadAsync(`${import.meta.env.BASE_URL}models/robot.glb`);
+  const gltf = await gltfLoader(manager).loadAsync(`${import.meta.env.BASE_URL}models/robot.glb`);
   const model = gltf.scene;
   model.traverse((o) => {
     if (o.isMesh) o.castShadow = true;

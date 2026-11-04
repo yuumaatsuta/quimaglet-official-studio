@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { CONFIG } from './config.js';
 import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { floorMirror, footprintShadow } from './floorMirror.js';
+import { mergeStatic } from './mergeStatic.js';
 import { wallShadow } from './wallShadow.js';
 import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
@@ -37,7 +38,7 @@ const HEAD_Y = 5.55;
 const CONCRETE_TILE = { u: 7.2, v: 3.6 };
 const WOOD_TILE = { u: 1.0, v: 2.0 };
 
-export async function buildStudioRoom(onProgress) {
+export async function buildStudioRoom(onProgress, contentReady) {
   RectAreaLightUniformsLib.init();
 
   const manager = new THREE.LoadingManager();
@@ -45,7 +46,7 @@ export async function buildStudioRoom(onProgress) {
   const [textures, furniture, crtTemplates, floorLogo] = await Promise.all([
     loadTextures(manager),
     loadFurniture(manager),
-    loadCrtTemplates(new GLTFLoader(manager)),
+    loadCrtTemplates(gltfLoader(manager)),
     buildFloorLogo(manager),
   ]);
   startCrtVideo(CONFIG.crtVideo);
@@ -81,6 +82,7 @@ export async function buildStudioRoom(onProgress) {
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    mesh.userData.merge = true; // 動かない部品。最後にまとめて描く（mergeStatic.js）
     group.add(mesh);
     return mesh;
   }
@@ -93,6 +95,7 @@ export async function buildStudioRoom(onProgress) {
     mesh.position.copy(a).add(b).multiplyScalar(0.5);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
     mesh.castShadow = true;
+    mesh.userData.merge = true;
     group.add(mesh);
     return mesh;
   }
@@ -138,6 +141,7 @@ export async function buildStudioRoom(onProgress) {
   }
 
   // 奥の壁の右上に、ペンキで落書きしたメニュー。押すとロボットがそのページを映す
+  await contentReady; // 壁のメニューとお知らせは、文章を読んでから作る
   const wallMenu = await buildWallMenu({ wallZ: -D });
   group.add(wallMenu.group);
   for (const [id, mesh] of wallMenu.items) tagHotspot(hotspots, id, mesh);
@@ -257,6 +261,9 @@ export async function buildStudioRoom(onProgress) {
 
   const hemi = new THREE.HemisphereLight('#dfe6ee', '#4d4640', 0.25);
   group.add(hemi);
+
+  // 窓枠・アーム・手すりなど、動かない小さな部品をまとめる（描く回数を減らす）
+  mergeStatic(group);
 
   // 床のブラウン管が見やすいよう、座ったくらいの目線
   const EYE = 1.15;
@@ -772,7 +779,7 @@ const FURNITURE = [
 ];
 
 async function loadFurniture(manager) {
-  const loader = new GLTFLoader(manager);
+  const loader = gltfLoader(manager);
   const base = import.meta.env.BASE_URL;
   const groups = await Promise.all(
     FURNITURE.map(async (item) => {
@@ -1530,20 +1537,20 @@ async function loadTextures(manager) {
     return tex;
   };
   const files = {
-    concreteAlbedo: ['concrete_albedo.png', true],
-    concreteNormal: ['concrete_normal.png'],
-    concreteRough: ['concrete_roughness.png'],
-    woodAlbedo: ['wood_albedo.png', true],
-    woodNormal: ['wood_normal.png'],
-    woodRough: ['wood_roughness.png'],
-    shelfAlbedo: ['shelf_albedo.png', true],
-    shelfNormal: ['shelf_normal.png'],
-    shelfRough: ['shelf_roughness.png'],
-    shutterAlbedo: ['shutter_albedo.png', true],
-    shutterRough: ['shutter_roughness.png'],
-    pavingAlbedo: ['paving_albedo.png', true],
-    pavingNormal: ['paving_normal.png'],
-    pavingRough: ['paving_roughness.png'],
+    concreteAlbedo: ['concrete_albedo.webp', true],
+    concreteNormal: ['concrete_normal.webp'],
+    concreteRough: ['concrete_roughness.webp'],
+    woodAlbedo: ['wood_albedo.webp', true],
+    woodNormal: ['wood_normal.webp'],
+    woodRough: ['wood_roughness.webp'],
+    shelfAlbedo: ['shelf_albedo.webp', true],
+    shelfNormal: ['shelf_normal.webp'],
+    shelfRough: ['shelf_roughness.webp'],
+    shutterAlbedo: ['shutter_albedo.webp', true],
+    shutterRough: ['shutter_roughness.webp'],
+    pavingAlbedo: ['paving_albedo.webp', true],
+    pavingNormal: ['paving_normal.webp'],
+    pavingRough: ['paving_roughness.webp'],
   };
   const entries = await Promise.all(
     Object.entries(files).map(async ([key, [name, srgb]]) => [key, await load(name, srgb)]),

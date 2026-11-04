@@ -159,6 +159,7 @@ function arm(tv, tpl, floor, { corner, along, side }, bend, material) {
     if (quaternion) mesh.quaternion.copy(quaternion);
     mesh.castShadow = true;
     mesh.userData.noPick = true;
+    mesh.userData.merge = true; // 動かない。部屋を組み終えたらまとめて描く（mergeStatic.js）
     group.add(mesh);
   };
 
