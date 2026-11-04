@@ -79,6 +79,19 @@ async function admin(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
+  // 設定用：Access を通ってきたときの JWT から、AUD とチームのドメイン（iss）を読んで見せる（署名は確かめない。
+  // どちらも秘密の値ではなく、これで中身を読み書きはできない）。ACCESS_AUD を設定する前に、ダッシュボードで値を探さずに済むように
+  if (url.pathname === '/api/admin/access-info') {
+    const token = request.headers.get('Cf-Access-Jwt-Assertion');
+    if (!token) return json({ error: 'Cloudflare Access を通っていません（Access の設定が有効か確かめてください）' }, 400);
+    try {
+      const p = JSON.parse(b64text(token.split('.')[1]));
+      return json({ ACCESS_TEAM_DOMAIN: p.iss, ACCESS_AUD: Array.isArray(p.aud) ? p.aud[0] : p.aud, email: p.email });
+    } catch {
+      return json({ error: 'bad_token' }, 400);
+    }
+  }
+
   const user = await accessUser(request, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
   // 別のサイトから書き換えさせない（同じ所から来た書き換えだけ受ける）
