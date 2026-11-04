@@ -206,10 +206,11 @@ export function createWeather({ scene, renderer, rig, initial, onSettled }) {
     scene.fog.density = c.fog;
 
     rain.material.opacity = Math.min(1, c.rain) * 0.5;
-    rain.visible = c.rain > 0.01;
+    // シャッターが閉まりきっている間は、雨も雪も描かない（窓まわりのすき間から部屋に入って見えるので）
+    rain.visible = c.rain > 0.01 && openness > 0.001;
     rainGeo.setDrawRange(0, Math.round(RAIN_MAX * Math.min(1, c.rain / 1.5)) * 2);
     snow.material.opacity = Math.min(1, c.snow) * 0.9;
-    snow.visible = c.snow > 0.01;
+    snow.visible = c.snow > 0.01 && openness > 0.001;
   }
 
   function step(dt) {
