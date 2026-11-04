@@ -10,6 +10,8 @@ workers_dev = true
 
 [vars]
 ROLE = "public"
+# ファビコン・サムネイルが未設定のときの既定の画像（favicon.png・og-image.jpg）の置き場所
+SITE_URL = "https://yuumaatsuta.github.io/quimaglet-official-studio/"
 
 [[d1_databases]]
 binding = "DB"

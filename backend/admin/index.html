@@ -241,6 +241,7 @@
           <button type="button" data-tab="works" aria-selected="false">Works</button>
           <button type="button" data-tab="goods" aria-selected="false">Goods</button>
           <button type="button" data-tab="contact" aria-selected="false">Contact</button>
+          <button type="button" data-tab="site" aria-selected="false">サイト設定</button>
           <button type="button" data-tab="history" aria-selected="false">履歴</button>
         </div>
 
@@ -290,6 +291,29 @@
           <input id="contact-title" />
           <label for="contact-body">本文（空行で段落。URL とメールアドレスはリンクになります）</label>
           <textarea id="contact-body" class="tall"></textarea>
+        </section>
+
+        <section data-panel="site" hidden>
+          <h2>サイト設定</h2>
+          <p class="note">空のときは、はじめから用意した画像（ロゴのファビコンと、部屋の写真のサムネイル）を使います。保存してから反映まで数分かかります。ブラウザのタブのファビコンは、ブラウザが覚えているので、替わるまでさらに時間がかかることがあります。</p>
+          <div class="site-img" data-kind="favicon">
+            <label>ファビコン（ブラウザのタブに出る小さな画像。正方形に切り取って 256×256 にします。白か明るい背景のものがおすすめ）</label>
+            <div class="img-field">
+              <span class="thumb" style="width: 54px"></span>
+              <input id="site-favicon" placeholder="空なら既定のロゴ" />
+              <button type="button" data-act="upload">画像を選ぶ</button>
+              <button type="button" data-act="clear">既定に戻す</button>
+            </div>
+          </div>
+          <div class="site-img" data-kind="og">
+            <label>サムネイル（LINE・X・Instagram などで URL を共有したときに出る画像。横長 1200×630 に切り取ります）</label>
+            <div class="img-field">
+              <span class="thumb" style="width: 103px"></span>
+              <input id="site-og" placeholder="空なら既定の部屋の写真" />
+              <button type="button" data-act="upload">画像を選ぶ</button>
+              <button type="button" data-act="clear">既定に戻す</button>
+            </div>
+          </div>
         </section>
 
         <section data-panel="history" hidden>
@@ -457,6 +481,9 @@
         $('goods-title').value = p.goods?.title ?? 'Goods';
         $('goods-body').value = p.goods?.body ?? '';
         renderList('goods', p.goods?.items ?? []);
+        $('site-favicon').value = doc.site?.favicon ?? '';
+        $('site-og').value = doc.site?.ogImage ?? '';
+        for (const box of document.querySelectorAll('.site-img')) refresh(box);
       }
 
       // 並べ替えできるリスト（お知らせ・グッズ）
@@ -479,7 +506,7 @@
       }
       // サムネイルと、公開の状態の札を描き直す
       function refresh(node) {
-        const img = node.querySelector('[data-field="image"]')?.value.trim();
+        const img = node.querySelector('[data-field="image"], .site-img input')?.value.trim();
         const thumb = node.querySelector('.thumb');
         if (thumb) thumb.style.backgroundImage = /^https?:\/\//.test(img ?? '') ? `url("${img.replace(/"/g, '%22')}")` : '';
         const pill = node.querySelector('[data-state]');
@@ -522,8 +549,10 @@
       // ---------- 画像 ----------
       // 選んだ画像を、長い辺 1600px までの WebP に縮めてから送る
       let pickFor = null;
-      function pickImage(node) {
+      let pickShape = null; // { w, h, type }：その大きさに切り取る（ファビコン・サムネイル）
+      function pickImage(node, shape = null) {
         pickFor = node;
+        pickShape = shape;
         $('file').value = '';
         $('file').click();
       }
@@ -535,9 +564,9 @@
         btn.disabled = true;
         status('画像を送っています…');
         try {
-          const blob = await shrink(file, 1600);
+          const blob = pickShape ? await crop(file, pickShape) : await shrink(file, 1600);
           const { url } = await api('/api/admin/images', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
-          node.querySelector('[data-field="image"]').value = url;
+          node.querySelector('[data-field="image"], .site-img input').value = url;
           refresh(node);
           dirty = true;
           status('画像を入れました。「保存」を押すとサイトに出ます', 'ok');
@@ -547,6 +576,37 @@
           btn.disabled = false;
         }
       });
+      // まんなかを w×h の形に切り取って、その大きさにする
+      async function crop(file, { w, h, type, q }) {
+        const bmp = await createImageBitmap(file);
+        const k = Math.max(w / bmp.width, h / bmp.height);
+        const sw = w / k;
+        const sh = h / k;
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const g = c.getContext('2d');
+        g.imageSmoothingQuality = 'high';
+        g.drawImage(bmp, (bmp.width - sw) / 2, (bmp.height - sh) / 2, sw, sh, 0, 0, w, h);
+        return new Promise((r) => c.toBlob(r, type, q));
+      }
+      const SHAPES = {
+        favicon: { w: 256, h: 256, type: 'image/png' },
+        og: { w: 1200, h: 630, type: 'image/jpeg', q: 0.88 }, // SNS は WebP を読めない所があるので JPEG
+      };
+      for (const box of document.querySelectorAll('.site-img')) {
+        box.addEventListener('input', () => refresh(box));
+        box.addEventListener('click', (e) => {
+          const act = e.target.dataset?.act;
+          if (act === 'upload') pickImage(box, SHAPES[box.dataset.kind]);
+          if (act === 'clear') {
+            box.querySelector('input').value = '';
+            refresh(box);
+            dirty = true;
+          }
+        });
+      }
+
       async function shrink(file, max) {
         const bmp = await createImageBitmap(file);
         const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
@@ -605,6 +665,7 @@
       // ---------- 保存 ----------
       function collect() {
         return {
+          site: { favicon: $('site-favicon').value.trim(), ogImage: $('site-og').value.trim() },
           pages: {
             about: {
               title: $('about-title').value.trim() || 'About',

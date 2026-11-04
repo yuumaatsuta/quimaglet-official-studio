@@ -29,7 +29,7 @@ export default {
 function roleOf(request, env) {
   if (env.ROLE !== 'dev') return env.ROLE;
   const path = new URL(request.url).pathname;
-  return path === '/api/content' || path.startsWith('/images/') ? 'public' : 'admin';
+  return path === '/api/content' || path.startsWith('/images/') || path.startsWith('/site/') ? 'public' : 'admin';
 }
 
 // ---------- サイトが読む ----------
@@ -46,23 +46,39 @@ async function publicApi(request, env) {
     return json(doc, 200, { ...cors(), 'Cache-Control': 'public, max-age=30' });
   }
 
+  // サイトのファビコンとサムネイル（SNS で共有したときの画像）。index.html はいつもこの URL を指し、中身は管理画面で替える。
+  // 管理画面でアップロードした画像ならそのまま返し、外の URL ならそこへ、未設定ならサイトに置いた既定の画像へ送る
+  const site = url.pathname.match(/^\/site\/(favicon|og-image)$/);
+  if (site) {
+    const row = await env.DB.prepare('SELECT data FROM content WHERE id = 1').first();
+    const doc = row ? JSON.parse(row.data) : {};
+    const src = (site[1] === 'favicon' ? doc.site?.favicon : doc.site?.ogImage) ?? '';
+    const own = `${url.origin}/images/`;
+    const cache = { 'Cache-Control': 'public, max-age=300' };
+    if (src.startsWith(own)) return image(request, env, src.slice(own.length), cache);
+    const fallback = `${(env.SITE_URL ?? '').replace(/\/?$/, '/')}${site[1] === 'favicon' ? 'favicon.png' : 'og-image.jpg'}`;
+    return new Response(null, { status: 302, headers: { ...cors(), ...cache, Location: /^https?:\/\//.test(src) ? src : fallback } });
+  }
+
   if (url.pathname.startsWith('/images/')) {
-    const key = decodeURIComponent(url.pathname.slice('/images/'.length));
-    if (!/^[\w\-/]+\.(webp|jpg|png|gif)$/.test(key)) return json({ error: 'not_found' }, 404, cors());
-    const obj = await env.DB.prepare('SELECT type, data FROM images WHERE key = ?').bind(key).first();
-    if (!obj) return json({ error: 'not_found' }, 404, cors());
-    const bytes = obj.data instanceof ArrayBuffer ? new Uint8Array(obj.data) : Uint8Array.from(obj.data);
-    return new Response(request.method === 'HEAD' ? null : bytes, {
-      headers: {
-        ...cors(),
-        'Content-Type': obj.type,
-        'Cache-Control': 'public, max-age=31536000, immutable', // 画像の名前は毎回新しいので、ずっと覚えてよい
-        'X-Content-Type-Options': 'nosniff',
-      },
+    // 画像の名前は毎回新しいので、ずっと覚えてよい
+    return image(request, env, decodeURIComponent(url.pathname.slice('/images/'.length)), {
+      'Cache-Control': 'public, max-age=31536000, immutable',
     });
   }
 
   return json({ error: 'not_found' }, 404, cors());
+}
+
+// アップロードした画像を返す
+async function image(request, env, key, headers) {
+  if (!/^[\w\-/]+\.(webp|jpg|png|gif)$/.test(key)) return json({ error: 'not_found' }, 404, cors());
+  const obj = await env.DB.prepare('SELECT type, data FROM images WHERE key = ?').bind(key).first();
+  if (!obj) return json({ error: 'not_found' }, 404, cors());
+  const bytes = obj.data instanceof ArrayBuffer ? new Uint8Array(obj.data) : Uint8Array.from(obj.data);
+  return new Response(request.method === 'HEAD' ? null : bytes, {
+    headers: { ...cors(), 'Content-Type': obj.type, 'X-Content-Type-Options': 'nosniff', ...headers },
+  });
 }
 
 // 公開してよいものだけ：下書きと、公開日時がまだ来ていないお知らせを外し、内部の項目を落とす
@@ -187,6 +203,8 @@ export function cleanDoc(doc) {
   const news = Array.isArray(doc.news) ? doc.news.slice(0, 500) : [];
   const goods = p.goods ?? {};
   return {
+    // ファビコンとサムネイル（公開側の /site/favicon・/site/og-image が返す）
+    site: { favicon: url(doc.site?.favicon), ogImage: url(doc.site?.ogImage) },
     pages: {
       about: { title: s(p.about?.title, 200), main: s(p.about?.main), fill: (Array.isArray(p.about?.fill) ? p.about.fill : []).slice(0, 300).map((w) => s(w, 300)) },
       works: page(p.works),
