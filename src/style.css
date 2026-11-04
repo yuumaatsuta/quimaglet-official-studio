@@ -559,8 +559,9 @@ body:not(.is-holo) .holo-beam {
   background: rgba(0, 0, 0, 0.65);
 }
 
-/* ---------- about（バンドのデザインの見開きを映す。aboutView.js） ---------- */
-/* 背景は暗くしない。部屋の上に見開きの絵（黒い地は透明）を映し、ざらつき（canvas）を重ね、ときどき絵ごと乱れる */
+/* ---------- about（バンドのデザインを映す。aboutView.js） ---------- */
+/* 背景は暗くしない。部屋の上にデザインの絵（地は透明）を映し、ざらつき（canvas）を重ね、ときどき絵ごと乱れる。
+   PC は 5 枚の絵を画面いっぱいに散らして置き（位置と大きさは JS）、スマホは縦長の 1 枚を縦へスクロール */
 
 .about-view {
   position: fixed;
@@ -605,15 +606,24 @@ body.is-goods .hero {
   display: none;
 }
 
-/* 絵が画面より小さいときはまんなかに、大きいとき（スマホ）は左から横へスクロール */
 .about-page {
   box-sizing: border-box;
-  min-width: 100%;
+  position: relative;
   min-height: 100%;
-  width: max-content;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  will-change: transform;
+}
+.about-view[data-mode='pc'] .about-page {
+  height: 100%;
+}
+.about-view[data-mode='pc'] .about-phone,
+.about-view[data-mode='phone'] .about-pc {
+  display: none;
+}
+.about-piece {
+  position: absolute;
+}
+.about-phone {
+  margin: 0 auto;
 }
 /* 明るい部屋の上でも白い文字が読めるよう、文字の形に沿ったごく薄い影を付ける */
 .about-sheet {
@@ -621,7 +631,6 @@ body.is-goods .hero {
   flex: none;
   max-width: none;
   filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 12px rgba(0, 0, 0, 0.3));
-  will-change: transform;
 }
 
 /* 映り始め：ちらつきながら現れる */

@@ -1,14 +1,26 @@
-// About を開いたときの画面。バンドが作った 1 見開きのデザイン（public/images/about-*.webp）を、
-// 部屋の上にそのまま映す（デザインの黒い地は透明にしてある。左下の写真だけは不透明）。
+// About を開いたときの画面。バンドが作ったデザインを、部屋の上にそのまま映す（地は透明。写真だけ不透明）。
 // 映り始めと、映っている間ときどき、ノイズが走って絵が乱れる（エラーのような乱れ）。
-// 横長の画面では見開き全体を画面いっぱいに収め、縦長の画面（スマホ）では高さを合わせて横へスクロールして読む。
+// PC：見開きを 5 つに分けた絵を、画面の四隅とまんなかに置き、文字どうしが重ならない範囲でいちばん大きく映す。
+// スマホ（縦長の画面や、PC 用では文字が小さくなりすぎる画面）：縦に長い 1 枚を、幅を合わせて縦へスクロールして読む。
 // 文字や写真のない所（透明な所）を押す・Esc で閉じる
 
-const SHEET = {
-  ratio: 4152 / 2921, // 元のデザインの縦横比
-  src: 'images/about-3200.webp',
-  srcset: 'images/about-1800.webp 1800w, images/about-3200.webp 3200w',
+// PC 用の 5 枚。w, h は絵の大きさ、ink は文字や写真のある塊（絵の中の矩形 [x, y, 幅, 高さ]）。
+// 5 枚とも元の見開きと同じ縮尺なので、同じ倍率で縮めれば文字の大きさがそろう
+const PIECES = {
+  title: { src: 'about-pc-title.webp', w: 2285, h: 723, ink: [[9, 4, 1449, 288], [2, 336, 2279, 244], [2, 650, 2129, 69]] },
+  atsuta: { src: 'about-pc-atsuta.webp', w: 1699, h: 413, ink: [[4, 4, 1691, 405]] },
+  center: { src: 'about-pc-center.webp', w: 1997, h: 423, ink: [[10, 4, 1584, 91], [4, 139, 1757, 44], [4, 295, 1989, 124]] },
+  mizuki: { src: 'about-pc-mizuki.webp', w: 1129, h: 1699, ink: [[0, 4, 1125, 985], [2, 1048, 694, 91], [2, 1187, 922, 68], [3, 1375, 1075, 324]] },
+  asaba: {
+    src: 'about-pc-asaba.webp',
+    w: 2881,
+    h: 2102,
+    ink: [[2532, 4, 345, 713], [1613, 801, 1252, 102], [4, 963, 2863, 347], [37, 1395, 2833, 491], [40, 1971, 2829, 131]],
+  },
 };
+const PHONE = { src: 'about-sp.webp', w: 1088, h: 9537 };
+const PC_MIN_SCALE = 0.2; // これより小さく縮めないと収まらない画面では、スマホ用の縦長の絵にする
+const PC_MAX_SCALE = 0.75;
 
 const NOISE = {
   scale: 3, // ノイズを何分の 1 の大きさで描いて引き伸ばすか（粗いほど軽い）
@@ -51,9 +63,10 @@ export function createAboutView({ onOpen, onClose } = {}) {
   root.innerHTML = `
     <div class="about-scroll">
       <div class="about-page">
-        <img class="about-sheet" alt="" decoding="async"
-          src="${base}${SHEET.src}"
-          srcset="${SHEET.srcset.replace(/images\//g, `${base}images/`)}" />
+        <div class="about-pc">
+          ${Object.keys(PIECES).map((k) => `<img class="about-sheet about-piece" data-piece="${k}" alt="" decoding="async" />`).join('')}
+        </div>
+        <img class="about-sheet about-phone" alt="" decoding="async" />
         <div class="sr-only">${TEXT}</div>
       </div>
     </div>
@@ -63,31 +76,131 @@ export function createAboutView({ onOpen, onClose } = {}) {
   const nctx = noise.getContext('2d');
   const scroller = root.querySelector('.about-scroll');
   const page = root.querySelector('.about-page');
-  const sheet = root.querySelector('.about-sheet');
+  const pieceEls = Object.fromEntries([...root.querySelectorAll('.about-piece')].map((el) => [el.dataset.piece, el]));
+  const phoneEl = root.querySelector('.about-phone');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let open = false;
   let returnFocus = null;
   let closeTimer = 0;
   let raf = 0;
 
-  // ---------- 大きさ ----------
+  // ---------- 大きさと置き方 ----------
 
-  // 横長の画面：見開き全体を収める。縦長の画面：高さを合わせ、横へスクロールして読む
+  let mode = '';
+
+  // 画面の上に重なっているロゴや設定ボタン。絵の文字がこれらに重ならないようにする
+  function obstacles(gap) {
+    return [...document.querySelectorAll('.site-header .logo img, .settings-toggle')]
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 4 && r.height > 4)
+      .map((r) => ({ x0: r.left - gap, y0: r.top - gap, x1: r.right + gap, y1: r.bottom + gap }));
+  }
+
+  // 上の段の絵を、ロゴや設定ボタンと横で重なる文字の塊がその下に来るまで下げる
+  function clearTop(piece, x, y, k, obs) {
+    for (const [rx, ry, rw] of piece.ink) {
+      for (const o of obs) {
+        if (x + rx * k < o.x1 && x + (rx + rw) * k > o.x0) y = Math.max(y, o.y1 - ry * k);
+      }
+    }
+    return y;
+  }
+
+  // 倍率 k のときの 5 枚の置き場所（画面の座標）。四隅の 4 枚はそれぞれの角に寄せ、
+  // まんなかの 1 枚は、上の段と浅葉さんの塊（Key. の見出し）とのあいだに、浅葉さんの文章と左をそろえて置く。
+  // beside：題字をロゴの下ではなく右に置く
+  function placePieces(k, box, beside) {
+    const P = PIECES;
+    const logo = box.obs[0];
+    const tx = beside && logo ? Math.max(box.l, logo.x1) : box.l;
+    const ax = box.r - P.atsuta.w * k;
+    const at = {
+      title: [tx, clearTop(P.title, tx, box.t, k, box.obs)],
+      atsuta: [ax, clearTop(P.atsuta, ax, box.t, k, box.obs)],
+      mizuki: [box.l, box.b - P.mizuki.h * k],
+      asaba: [box.r - P.asaba.w * k, box.b - P.asaba.h * k],
+    };
+    const topBottom = Math.max(at.title[1] + P.title.h * k, at.atsuta[1] + P.atsuta.h * k);
+    const keyTop = at.asaba[1] + P.asaba.ink[1][1] * k;
+    const cx = Math.max(at.asaba[0] + P.asaba.ink[2][0] * k, box.l + P.mizuki.w * k + box.gap);
+    const cy = (topBottom + keyTop - P.center.h * k) / 2;
+    at.center = [cx, cy];
+    return at;
+  }
+
+  // 文字の塊どうし・ロゴや設定ボタンと重ならず、画面からはみ出さないか
+  function fits(k, box, beside) {
+    const at = placePieces(k, box, beside);
+    const rects = box.obs.map((o) => ({ ...o, name: 'header' }));
+    const g = box.gap;
+    for (const [name, [x, y]] of Object.entries(at)) {
+      for (const [rx, ry, rw, rh] of PIECES[name].ink) {
+        const r = { name, x0: x + rx * k, y0: y + ry * k, x1: x + (rx + rw) * k, y1: y + (ry + rh) * k };
+        if (r.x0 < box.l - 0.5 || r.x1 > box.r + 0.5 || r.y0 < box.t - 0.5 || r.y1 > box.b + 0.5) return false;
+        rects.push(r);
+      }
+    }
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i];
+        const b = rects[j];
+        if (a.name === b.name) continue;
+        // ロゴ・設定ボタンのまわりの余白は obstacles() で付けてある
+        const m = a.name === 'header' || b.name === 'header' ? 0 : g;
+        if (a.x0 < b.x1 + m && b.x0 < a.x1 + m && a.y0 < b.y1 + m && b.y0 < a.y1 + m) return false;
+      }
+    }
+    return true;
+  }
+
+  function pcScale(box, beside) {
+    let lo = 0;
+    let hi = PC_MAX_SCALE;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid, box, beside)) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  function setSrc(el, file) {
+    if (!el.getAttribute('src')) el.src = `${base}images/${file}`;
+  }
+
   function layout() {
-    const narrow = innerWidth < 720;
-    const top = narrow ? 70 : 64; // ロゴとメニューの下から
-    const bottom = narrow ? 16 : 8;
-    const side = narrow ? 12 : 12;
-    const availW = innerWidth - side * 2;
-    const availH = innerHeight - top - bottom;
-    const portrait = innerWidth < innerHeight;
-    const h = portrait ? availH : Math.min(availH, availW / SHEET.ratio);
-    const w = h * SHEET.ratio;
-    sheet.style.width = `${w.toFixed(0)}px`;
-    sheet.style.height = `${h.toFixed(0)}px`;
-    page.style.padding = `${top}px ${side}px ${bottom}px`;
-    // srcset は表示幅で選ばせる
-    sheet.sizes = `${Math.ceil(w)}px`;
+    const W = innerWidth;
+    const H = innerHeight;
+    const narrow = W < 720;
+    const top = narrow ? 70 : 64; // スマホ用：ロゴとメニューの下から
+    const side = narrow ? 14 : 16;
+    const gap = Math.max(14, W * 0.012);
+    const box = { l: side, r: W - side, t: 16, b: H - 12, gap, obs: obstacles(gap * 0.6) };
+    // 題字はロゴの下か右か、大きく映せる方に置く
+    const below = W >= H ? pcScale(box, false) : 0;
+    const right = W >= H ? pcScale(box, true) : 0;
+    const beside = right > below;
+    const k = Math.max(below, right);
+    mode = k >= PC_MIN_SCALE ? 'pc' : 'phone';
+    root.dataset.mode = mode;
+    if (mode === 'pc') {
+      page.style.padding = '';
+      const at = placePieces(k, box, beside);
+      for (const [name, el] of Object.entries(pieceEls)) {
+        const p = PIECES[name];
+        setSrc(el, p.src);
+        el.style.width = `${(p.w * k).toFixed(1)}px`;
+        el.style.height = `${(p.h * k).toFixed(1)}px`;
+        el.style.left = `${at[name][0].toFixed(1)}px`;
+        el.style.top = `${at[name][1].toFixed(1)}px`;
+      }
+    } else {
+      setSrc(phoneEl, PHONE.src);
+      const w = Math.min(W - side * 2, 600);
+      phoneEl.style.width = `${w.toFixed(0)}px`;
+      phoneEl.style.height = `${((w * PHONE.h) / PHONE.w).toFixed(0)}px`;
+      page.style.padding = `${top}px ${side}px 28px`;
+    }
   }
 
   // ---------- ノイズと乱れ ----------
@@ -122,10 +235,10 @@ export function createAboutView({ onOpen, onClose } = {}) {
     // 絵の乱れ：横へずれて、色が左右に分かれる
     if ((bursting || intro > 0.35) && !reducedMotion) {
       const shift = (Math.random() - 0.5) * (bursting ? 12 : 8);
-      sheet.style.transform = `translate3d(${shift.toFixed(1)}px, 0, 0) skewX(${((Math.random() - 0.5) * 2).toFixed(2)}deg)`;
+      page.style.transform = `translate3d(${shift.toFixed(1)}px, 0, 0) skewX(${((Math.random() - 0.5) * 2).toFixed(2)}deg)`;
       page.classList.add('is-glitch');
     } else if (page.classList.contains('is-glitch')) {
-      sheet.style.transform = '';
+      page.style.transform = '';
       page.classList.remove('is-glitch');
     }
   }
@@ -202,31 +315,35 @@ export function createAboutView({ onOpen, onClose } = {}) {
     }, 420);
   }
 
-  // 押した所が絵の透明な所（文字も写真もない所）か。小さい方の絵を一度だけ読み込んで調べる
-  let hitData = null;
-  const hitImage = new Image();
-  hitImage.src = `${base}images/about-1800.webp`;
-  hitImage.decode().then(() => {
-    const c = document.createElement('canvas');
-    c.width = 360;
-    c.height = Math.round(360 / SHEET.ratio);
-    const g = c.getContext('2d', { willReadFrequently: true });
-    g.drawImage(hitImage, 0, 0, c.width, c.height);
-    hitData = { w: c.width, h: c.height, a: g.getImageData(0, 0, c.width, c.height).data };
-  }).catch(() => {});
+  // 押した所が絵の透明な所（文字も写真もない所）か。絵ごとに、読み込んだら一度だけ小さく写して透明度を控えておく
+  const masks = new Map();
+  for (const el of [...Object.values(pieceEls), phoneEl]) {
+    el.addEventListener('load', () => {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(el.naturalWidth / 8));
+      c.height = Math.max(1, Math.round(el.naturalHeight / 8));
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.drawImage(el, 0, 0, c.width, c.height);
+      masks.set(el, { w: c.width, h: c.height, a: g.getImageData(0, 0, c.width, c.height).data });
+    });
+  }
   function onInk(e) {
-    const r = sheet.getBoundingClientRect();
-    const u = (e.clientX - r.left) / r.width;
-    const v = (e.clientY - r.top) / r.height;
-    if (u < 0 || u > 1 || v < 0 || v > 1) return false;
-    if (!hitData) return true;
-    // 押した所のまわり（文字の隙間を押しても閉じないよう、少し広く）に色があるか
-    const cx = Math.floor(u * hitData.w);
-    const cy = Math.floor(v * hitData.h);
-    for (let y = cy - 2; y <= cy + 2; y++) {
-      for (let x = cx - 2; x <= cx + 2; x++) {
-        if (x < 0 || y < 0 || x >= hitData.w || y >= hitData.h) continue;
-        if (hitData.a[(y * hitData.w + x) * 4 + 3] > 40) return true;
+    const els = mode === 'pc' ? Object.values(pieceEls) : [phoneEl];
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      const u = (e.clientX - r.left) / r.width;
+      const v = (e.clientY - r.top) / r.height;
+      if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+      const m = masks.get(el);
+      if (!m) return true;
+      // 押した所のまわり（文字の隙間を押しても閉じないよう、少し広く）に色があるか
+      const cx = Math.floor(u * m.w);
+      const cy = Math.floor(v * m.h);
+      for (let y = cy - 2; y <= cy + 2; y++) {
+        for (let x = cx - 2; x <= cx + 2; x++) {
+          if (x < 0 || y < 0 || x >= m.w || y >= m.h) continue;
+          if (m.a[(y * m.w + x) * 4 + 3] > 40) return true;
+        }
       }
     }
     return false;
