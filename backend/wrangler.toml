@@ -14,7 +14,7 @@ ROLE = "public"
 [[d1_databases]]
 binding = "DB"
 database_name = "quimaglet"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "b8a9a578-728b-42ef-bbc6-5e2c384c42f8"
 
 [env.admin]
 name = "quimaglet-admin"
@@ -25,7 +25,7 @@ assets = { directory = "./admin", binding = "ASSETS" }
 ROLE = "admin"
 SITE_URL = "https://yuumaatsuta.github.io/quimaglet-official-studio/"
 # 公開側の Worker の URL（アップロードした画像の URL になる）。npm run setup が書き込む
-PUBLIC_BASE = ""
+PUBLIC_BASE = "https://quimaglet-api.quimaglet.workers.dev"
 # Cloudflare Access の設定（README の手順 3）。両方そろうまで、管理画面の API は誰にも使えない
 ACCESS_TEAM_DOMAIN = ""
 ACCESS_AUD = ""
@@ -33,5 +33,5 @@ ACCESS_AUD = ""
 [[env.admin.d1_databases]]
 binding = "DB"
 database_name = "quimaglet"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "b8a9a578-728b-42ef-bbc6-5e2c384c42f8"
 
