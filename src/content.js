@@ -35,6 +35,22 @@ export const LATEST_NEWS = {
   image: null,
 };
 
+// お知らせの全部（新しい順）。一覧は 1 台目のロボットのホログラム、本文は 2 台目が壁に映す（main.js・newsProjector.js）
+// { date, title, body, image }
+export const NEWS_LIST = [{ ...LATEST_NEWS }];
+
+// ホログラムに映す一覧。押すと、2 台目のロボットが映している壁に近づいて本文を読む
+export function newsListHtml() {
+  return `<ul class="news-list">${NEWS_LIST.map(
+    (n, i) => `<li><button type="button" class="news-link" data-news="${i}"><span class="news-date">${escapeHtml(n.date ?? '')}</span><span class="news-title">${escapeHtml(n.title ?? '')}</span>${n.body ? `<span class="news-excerpt">${escapeHtml(excerpt(n.body))}</span>` : ''}<span class="news-more">本文を読む →</span></button></li>`,
+  ).join('')}</ul>`;
+}
+function excerpt(text) {
+  const t = String(text).replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
+  return t.length > 60 ? `${t.slice(0, 60)}…` : t;
+}
+SECTIONS.news.body = newsListHtml();
+
 // public/content.json を読んで上の入れ物を書き換える。待ちすぎないよう、時間がかかるときは仮の文章のまま進む
 export async function loadContent(timeoutMs = 4000) {
   try {
@@ -73,9 +89,9 @@ export function applyContent(data) {
   }
   const news = (data?.news ?? []).filter((n) => n.title || n.body);
   if (news.length) {
-    SECTIONS.news.body = news
-      .map((n) => `<article class="news-item"><p class="news-date">${escapeHtml(n.date ?? '')}</p><h3>${escapeHtml(n.title ?? '')}</h3>${textToHtml(n.body ?? '')}</article>`)
-      .join('');
+    NEWS_LIST.length = 0;
+    for (const n of news) NEWS_LIST.push({ date: n.date ?? '', title: n.title ?? '', body: n.body ?? '', image: n.image || null });
+    SECTIONS.news.body = newsListHtml();
     const latest = news[0];
     Object.assign(LATEST_NEWS, {
       date: latest.date ?? '',

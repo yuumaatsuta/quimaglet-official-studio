@@ -69,6 +69,16 @@
 
     <button type="button" id="zoom-back" class="zoom-back" hidden>← 戻る</button>
 
+    <!-- お知らせを読んでいる間のボタン（2 台目のロボットが壁に本文を映す。src/main.js） -->
+    <nav id="news-nav" class="news-nav" aria-label="お知らせ" hidden>
+      <button type="button" data-news-go="prev">← 前の記事</button>
+      <button type="button" data-news-go="list">News 一覧</button>
+      <button type="button" data-news-go="next">次の記事 →</button>
+      <a class="news-nav-link" target="_blank" rel="noopener" hidden>リンク ↗</a>
+      <button type="button" class="news-nav-close" data-news-go="close" aria-label="閉じる">×</button>
+    </nav>
+    <div id="news-sr" class="sr-only" aria-live="polite"></div>
+
     <div id="tooltip" class="tooltip" hidden></div>
 
     <!-- Goods の紙のメニューの中身（読み上げとキーボード操作用。見た目は 3D の紙。src/main.js） -->

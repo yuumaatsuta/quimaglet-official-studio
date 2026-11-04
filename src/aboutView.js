@@ -306,6 +306,7 @@ export function createAboutView({ onOpen, onClose } = {}) {
     // 消えるときも一瞬乱れる
     burstEnd = (performance.now() - t0) / 1000 + 0.35;
     history.replaceState(null, '', location.pathname + location.search);
+    document.body.classList.remove('is-about-scrolled');
     returnFocus?.focus?.({ preventScroll: true });
     onClose?.();
     closeTimer = setTimeout(() => {
@@ -353,6 +354,10 @@ export function createAboutView({ onOpen, onClose } = {}) {
     if (!onInk(e)) hide();
   });
   addEventListener('keydown', (e) => e.key === 'Escape' && hide());
+  // スマホ版をスクロールしている間は、左上のロゴを隠す（文字に重なるので）
+  scroller.addEventListener('scroll', () => document.body.classList.toggle('is-about-scrolled', open && scroller.scrollTop > 8), {
+    passive: true,
+  });
   addEventListener('resize', () => open && layout());
 
   return {

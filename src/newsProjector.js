@@ -4,7 +4,8 @@ import { LATEST_NEWS } from './content.js';
 
 // 2 台目のロボット。サイトを開いて少しすると画面の左から飛んできて、
 // 奥の壁（落書きメニューの下）に最新のお知らせをプロジェクターのように映す。
-// ほかのメニューが開いている間（setAway(true)）は映すのをやめて画面の外へはけ、閉じたらまた戻ってくる
+// ほかのメニューが開いている間（setAway(true)）は映すのをやめて画面の外へはけ、閉じたらまた戻ってくる。
+// お知らせの本文を読むとき（read(...)）は、選んだ記事を壁いっぱいに映す。縦長の画面（スマホ）で読むときは、映す形も縦長にする
 
 const NEWS = {
   delay: 10, // サイトを開いてから出てくるまで（秒）
@@ -51,10 +52,10 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
   const lamp = new THREE.PointLight(NEWS.color, 0, 1.4, 2); // 投影口のまわりを照らす
   emitter.add(lamp);
 
-  // 壁の投影面。文字と画像は canvas に描く
+  // 壁の投影面。文字と画像は canvas に描く（形が変わると描き直す）
   const card = drawCard();
   const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(NEWS.aspect, 1),
+    new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({
       map: card.texture,
       transparent: true,
@@ -67,6 +68,10 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
   );
   screen.userData.noPick = true;
   group.add(screen);
+  card.onTexture = (tex) => {
+    screen.material.map = tex;
+    screen.material.needsUpdate = true;
+  };
 
   // 投影口から投影面の四隅へ広がる光（薄い四角錐）
   const beamGeo = new THREE.BufferGeometry();
@@ -106,14 +111,16 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
     away: false,
     on: 0, // 投影の強さ 0〜1
     last: 0,
+    reading: false, // お知らせの本文を映している
+    aspect: NEWS.aspect,
   };
 
   function layout() {
     // 投影面：メニューの下、左右は部屋の中央
     const top = (menu.userData.bottom ?? 3.4) - NEWS.gap;
-    const h = Math.max(0.6, Math.min(NEWS.maxHeight, NEWS.maxWidth / NEWS.aspect, top - NEWS.minBottom));
-    const w = h * NEWS.aspect;
-    screen.scale.set(h, h, 1);
+    const h = Math.max(0.6, Math.min(NEWS.maxHeight, NEWS.maxWidth / st.aspect, top - NEWS.minBottom));
+    const w = h * st.aspect;
+    screen.scale.set(w, h, 1);
     screen.position.set(0, top - h / 2, wallZ + 0.008);
     corners[0].set(-w / 2, top, wallZ + 0.01);
     corners[1].set(w / 2, top, wallZ + 0.01);
@@ -141,7 +148,8 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
     offstage(view);
     if (st.pos === null) st.pos = off.clone();
 
-    const show = t > NEWS.delay && !st.away;
+    // 本文を読んでいる間は、ほかの事情にかかわらず映す
+    const show = st.reading || (t > NEWS.delay && !st.away);
     // はけるときは、まず投影を消してから飛ぶ
     const goal = show ? stand : off;
     const beamDone = st.on < 0.02;
@@ -209,109 +217,220 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
 
   return {
     group,
+    screen,
+    // ふだんの投影がはっきり映っているか（壁の投影を押して読めるのは、このときだけ）
+    get shown() {
+      return st.on > 0.5 && !st.reading;
+    },
     // ほかのメニューが開いている間は true（画面の外へはける）
     setAway(v) {
       st.away = v;
     },
+    // お知らせの本文を映す。article が null なら、ふだんの最新のお知らせに戻す。
+    // aspect：映す形（幅÷高さ）。index / total：何件目か
+    read(article, { aspect = NEWS.aspect, index = 0, total = 1 } = {}) {
+      st.reading = !!article;
+      st.aspect = article ? aspect : NEWS.aspect;
+      card.draw(article ? { article, aspect: st.aspect, index, total } : null);
+      layout();
+      // 映し直す：一瞬弱まって、ちらつきながら戻る
+      st.on = Math.min(st.on, 0.35);
+    },
   };
 }
 
-// お知らせのカード：左上に NEWS、左にサムネイル、右にタイトルと本文
+// お知らせのカード。
+// ふだん：左上に NEWS、左にサムネイル、右にタイトルと本文の出だし（最新の 1 件。4:3）。
+// 本文を読むとき：選んだ記事のタイトルと本文の全部。形は画面に合わせる（縦長もある）
 function drawCard() {
-  const W = 1280;
-  const H = 960; // 4:3
   const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
   const ctx = canvas.getContext('2d');
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  let texture = new THREE.CanvasTexture(canvas);
   const font = (w, px) => `${w} ${px}px Inter, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif`;
-  let image = null;
+  const images = new Map(); // 画像の URL → 読み込んだ画像（読み込み中は null）
+  let current = null;
 
-  function wrap(text, x, y, maxW, lineH, maxLines) {
-    let line = '';
-    let n = 0;
-    const chars = [...text];
-    for (let i = 0; i < chars.length; i++) {
-      const next = line + chars[i];
-      if (ctx.measureText(next).width > maxW && line) {
-        n++;
-        if (n === maxLines) {
-          ctx.fillText(`${line.slice(0, -1)}…`, x, y);
-          return y + lineH;
-        }
-        ctx.fillText(line, x, y);
-        y += lineH;
-        line = chars[i];
-      } else {
-        line = next;
-      }
-    }
-    if (line) ctx.fillText(line, x, y);
-    return y + lineH;
+  // 画像を読み込んで、読めたら描き直す。外の画像（URL）も使えるが、CORS を許可していない所の画像は読めない（仮のサムネイルのまま）
+  function imageFor(src) {
+    if (!src) return null;
+    if (images.has(src)) return images.get(src);
+    images.set(src, null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      images.set(src, img);
+      draw(current);
+    };
+    img.src = /^https?:/.test(src) ? src : `${import.meta.env.BASE_URL}${src}`;
+    return null;
   }
 
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    // 投影の地：壁に当たった光のむら（中央が明るく、端が暗い）
-    const bg = ctx.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, W * 0.62);
-    bg.addColorStop(0, 'rgba(30, 90, 220, 0.72)');
-    bg.addColorStop(1, 'rgba(10, 32, 120, 0.62)');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+  // 折り返し。英語は単語の切れ目で、日本語は 1 文字ずつ。長い URL などは途中で折る。
+  // paint=false なら描かずに行数だけ数える。maxLines に達したら最後の行を … で切る
+  function wrap(text, x, y, maxW, lineH, maxLines = Infinity, paint = true) {
+    const tokens = String(text).match(/[A-Za-z0-9'’.,:;!?\-/@#%&_=+~()"$*]+\s*|\s+|./gu) ?? [];
+    let line = '';
+    let lines = 0;
+    const emit = (l, last) => {
+      lines++;
+      if (paint) ctx.fillText(last ? `${l.replace(/\s+$/, '').slice(0, -1)}…` : l, x, y);
+      y += lineH;
+    };
+    for (let i = 0; i < tokens.length; i++) {
+      let tok = tokens[i];
+      if (ctx.measureText(line + tok).width <= maxW) {
+        line += tok;
+        continue;
+      }
+      if (line.trim()) {
+        if (lines + 1 >= maxLines) {
+          emit(line, true);
+          return { y, lines, cut: true };
+        }
+        emit(line);
+      }
+      line = '';
+      tok = tok.replace(/^\s+/, '');
+      // 1 行に入らない長いかたまりは文字で折る
+      while (ctx.measureText(tok).width > maxW) {
+        let n = 1;
+        while (n < tok.length && ctx.measureText(tok.slice(0, n + 1)).width <= maxW) n++;
+        if (lines + 1 >= maxLines) {
+          emit(tok.slice(0, n), true);
+          return { y, lines, cut: true };
+        }
+        emit(tok.slice(0, n));
+        tok = tok.slice(n);
+      }
+      line = tok;
+    }
+    if (line.trim()) emit(line);
+    return { y, lines, cut: false };
+  }
 
-    ctx.fillStyle = '#eaf4ff';
-    ctx.shadowColor = 'rgba(120, 190, 255, 0.9)';
-    ctx.shadowBlur = 14;
-    // 左上の NEWS
-    ctx.font = font(900, 84);
-    ctx.textBaseline = 'top';
-    ctx.fillText('NEWS', 64, 50);
-    ctx.font = font(600, 38);
-    ctx.globalAlpha = 0.85;
-    ctx.fillText(LATEST_NEWS.date ?? '', 360, 82);
-    ctx.globalAlpha = 1;
+  // 本文（改行・空行あり）を、入るいちばん大きい文字で描く。いちばん小さくても入らなければ途中まで
+  function body(text, x, y, maxW, maxH, sizes) {
+    const paras = String(text).trim().split('\n');
+    for (let si = 0; si < sizes.length; si++) {
+      const px = sizes[si];
+      const lh = Math.round(px * 1.6);
+      ctx.font = font(500, px);
+      let h = 0;
+      for (const p of paras) h += p.trim() ? wrap(p, x, 0, maxW, lh, Infinity, false).lines * lh : lh * 0.6;
+      if (h > maxH && si < sizes.length - 1) continue;
+      let yy = y;
+      for (const p of paras) {
+        if (!p.trim()) {
+          yy += lh * 0.6;
+          continue;
+        }
+        const left = Math.floor((y + maxH - yy) / lh);
+        if (left < 1) break;
+        const r = wrap(p, x, yy, maxW, lh, left);
+        yy = r.y;
+        if (r.cut) break;
+      }
+      return;
+    }
+  }
 
-    // サムネイル
-    const tx = 64;
-    const ty = 176;
-    const tw = 520;
-    const th = 390;
-    ctx.shadowBlur = 0;
-    if (image) {
-      const s = Math.max(tw / image.width, th / image.height);
-      const sw = tw / s;
-      const sh = th / s;
+  function thumb(img, x, y, w, h) {
+    if (img) {
+      const s = Math.max(w / img.width, h / img.height);
+      const sw = w / s;
+      const sh = h / s;
       ctx.globalAlpha = 0.92;
-      ctx.drawImage(image, (image.width - sw) / 2, (image.height - sh) / 2, sw, sh, tx, ty, tw, th);
+      ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, x, y, w, h);
       ctx.globalAlpha = 1;
     } else {
       // 仮のサムネイル
-      const g = ctx.createLinearGradient(tx, ty, tx + tw, ty + th);
+      const g = ctx.createLinearGradient(x, y, x + w, y + h);
       g.addColorStop(0, 'rgba(140, 200, 255, 0.55)');
       g.addColorStop(1, 'rgba(40, 90, 220, 0.4)');
       ctx.fillStyle = g;
-      ctx.fillRect(tx, ty, tw, th);
+      ctx.fillRect(x, y, w, h);
       ctx.fillStyle = 'rgba(235, 245, 255, 0.85)';
-      ctx.font = font(900, 54);
+      ctx.font = font(900, Math.round(w / 9.6));
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('QUIMAGLET', tx + tw / 2, ty + th / 2);
+      ctx.fillText('QUIMAGLET', x + w / 2, y + h / 2);
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
     }
     ctx.strokeStyle = 'rgba(200, 230, 255, 0.7)';
     ctx.lineWidth = 3;
-    ctx.strokeRect(tx, ty, tw, th);
+    ctx.strokeRect(x, y, w, h);
+  }
 
-    // タイトルと本文
-    // タイトルはサムネイルの右、本文はその下に横いっぱい（壁に映しても読める大きさ）
-    const x = tx + tw + 48;
-    ctx.fillStyle = '#ffffff';
+  // 投影の地（壁に当たった光のむら。中央が明るく、端が暗い）
+  function ground(W, H) {
+    const bg = ctx.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, Math.max(W, H) * 0.62);
+    bg.addColorStop(0, 'rgba(30, 90, 220, 0.72)');
+    bg.addColorStop(1, 'rgba(10, 32, 120, 0.62)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // 走査線と、縁のにじみ
+  function finish(W, H) {
+    ctx.shadowBlur = 0;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let yy = 0; yy < H; yy += 4) ctx.fillRect(0, yy, W, 1);
+    const edge = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.55, W / 2, H / 2, Math.hypot(W, H) * 0.52);
+    edge.addColorStop(0, 'rgba(0,0,0,0)');
+    edge.addColorStop(1, 'rgba(0,0,0,0.8)');
+    ctx.fillStyle = edge;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function glow(blur, color = '#eaf4ff') {
+    ctx.fillStyle = color;
     ctx.shadowColor = 'rgba(120, 190, 255, 0.9)';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = blur;
+  }
+
+  // 組む大きさ（W×H）と、canvas の画素の倍率。canvas の大きさが変わったら texture を作り直す
+  function setup(W, H, scale) {
+    const cw = Math.round(W * scale);
+    const ch = Math.round(H * scale);
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+      texture.dispose();
+      texture = new THREE.CanvasTexture(canvas);
+      api.texture = texture;
+      api.onTexture?.(texture);
+    }
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+  }
+
+  // ふだんの、最新のお知らせ
+  function drawLatest() {
+    const W = 1280;
+    const H = 960;
+    setup(W, H, 1);
+    ground(W, H);
+    glow(14);
+    ctx.font = font(900, 84);
+    ctx.fillText('NEWS', 64, 50);
+    ctx.font = font(600, 38);
+    ctx.globalAlpha = 0.85;
+    ctx.fillText(LATEST_NEWS.date ?? '', 360, 82);
+    ctx.globalAlpha = 1;
+    const tx = 64;
+    const ty = 176;
+    const tw = 520;
+    const th = 390;
+    ctx.shadowBlur = 0;
+    thumb(imageFor(LATEST_NEWS.image), tx, ty, tw, th);
+    const x = tx + tw + 48;
+    glow(10, '#ffffff');
     ctx.font = font(800, 56);
     wrap(LATEST_NEWS.title ?? '', x, ty, W - x - 64, 74, 5);
     const by = ty + th + 44;
@@ -320,33 +439,73 @@ function drawCard() {
     ctx.fillStyle = '#ffffff';
     ctx.font = font(500, 42);
     wrap(LATEST_NEWS.body ?? '', tx, by + 30, W - tx * 2, 62, 4);
+    finish(W, H);
+  }
 
-    // 走査線と、縁のにじみ
-    ctx.shadowBlur = 0;
-    ctx.globalCompositeOperation = 'destination-out';
-    for (let yy = 0; yy < H; yy += 4) {
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.fillRect(0, yy, W, 1);
+  // 本文を読むときの 1 件。横長なら画像は左上・タイトルはその右、縦長なら画像を上に横いっぱい
+  function drawArticle({ article, aspect, index, total }) {
+    const portrait = aspect < 1;
+    const W = portrait ? 860 : 1280;
+    const H = Math.round(W / aspect);
+    setup(W, H, portrait ? 2 : 1.5);
+    ground(W, H);
+    const m = portrait ? 52 : 64;
+    // 見出しの行：NEWS・日付・何件目か
+    glow(14);
+    ctx.font = font(900, portrait ? 64 : 72);
+    ctx.fillText('NEWS', m, m - 10);
+    const nw = ctx.measureText('NEWS').width;
+    ctx.font = font(600, portrait ? 32 : 36);
+    ctx.globalAlpha = 0.85;
+    const dy = m + (portrait ? 18 : 22);
+    ctx.fillText(article.date ?? '', m + nw + 28, dy);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${index + 1} / ${total}`, W - m, dy);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+    let y = m + (portrait ? 96 : 108);
+
+    const src = article.image;
+    const img = imageFor(src);
+    if (src && !portrait) {
+      const tw = 440;
+      const th = 330;
+      ctx.shadowBlur = 0;
+      thumb(img, m, y, tw, th);
+      glow(10, '#ffffff');
+      ctx.font = font(800, 52);
+      const x = m + tw + 44;
+      const r = wrap(article.title ?? '', x, y, W - x - m, 68, 5);
+      y = Math.max(y + th, r.y) + 36;
+    } else {
+      if (src) {
+        const tw = W - m * 2;
+        const th = Math.round(tw * 0.56);
+        ctx.shadowBlur = 0;
+        thumb(img, m, y, tw, th);
+        y += th + 36;
+      }
+      glow(10, '#ffffff');
+      ctx.font = font(800, portrait ? 50 : 56);
+      y = wrap(article.title ?? '', m, y, W - m * 2, portrait ? 66 : 74, 4).y + 20;
     }
-    const edge = ctx.createRadialGradient(W / 2, H / 2, H * 0.55, W / 2, H / 2, W * 0.66);
-    edge.addColorStop(0, 'rgba(0,0,0,0)');
-    edge.addColorStop(1, 'rgba(0,0,0,0.85)');
-    ctx.fillStyle = edge;
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(200, 230, 255, 0.6)';
+    ctx.fillRect(m, y, 120, 4);
+    y += 34;
+    glow(8, '#ffffff');
+    body(article.body ?? '', m, y, W - m * 2, H - y - m, portrait ? [44, 40, 36, 32, 29, 26] : [44, 40, 36, 33, 30, 27, 24]);
+    finish(W, H);
+  }
+
+  function draw(what) {
+    current = what;
+    if (what) drawArticle(what);
+    else drawLatest();
     texture.needsUpdate = true;
   }
 
-  draw();
-  if (LATEST_NEWS.image) {
-    const img = new Image();
-    img.onload = () => {
-      image = img;
-      draw();
-    };
-    // 外の画像（URL）も使える。canvas に描くので、CORS を許可していない所の画像は読めない（仮のサムネイルのまま）
-    img.crossOrigin = 'anonymous';
-    img.src = /^https?:/.test(LATEST_NEWS.image) ? LATEST_NEWS.image : `${import.meta.env.BASE_URL}${LATEST_NEWS.image}`;
-  }
-  return { texture };
+  const api = { texture, draw, onTexture: null };
+  draw(null);
+  return api;
 }

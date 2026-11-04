@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CONFIG } from './config.js';
 import { createAboutView } from './aboutView.js';
-import { GOODS, SECTIONS, loadContent } from './content.js';
+import { GOODS, NEWS_LIST, SECTIONS, loadContent } from './content.js';
 import { createGoodsPaper } from './goodsPaper.js';
 import { createHotspots, isPickable, isShown } from './hotspots.js';
 import { createInput, isTouchDevice } from './input.js';
@@ -273,36 +273,48 @@ const ZOOM = {
   gap: 0.08, // 物の前面から窓までの距離（m）
   seconds: 1.4, // ズームにかかる時間
 };
-const zoom = { target: null, amount: 0, to: 0, focusWin: null };
+const zoom = { target: null, amount: 0, to: 0, focusWin: null, opts: null };
 const shownWin = { cx: 0, cy: 0, cz: 0, halfW: 1, halfH: 1 };
 const robotEye = new THREE.Vector3();
 const zoomBack = document.getElementById('zoom-back');
 
-function focusWindow(obj) {
-  // 床の影など、押せない飾りは大きさに含めない
+// opts.margin：余白。opts.top / opts.bottom()：画面の上下で空けておく画素（ロゴやボタンの分）。
+// 物の大きさは、床の影など押せない飾りを含めずに測る（物そのものが押せない飾りのとき＝壁の投影は、それを測る）
+function focusWindow(obj, opts = {}) {
   const box = new THREE.Box3();
-  obj.traverse((o) => o.isMesh && !o.userData.noPick && box.expandByObject(o, true));
+  obj.traverse((o) => o.isMesh && (o === obj || !o.userData.noPick) && box.expandByObject(o, true));
   const c = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
+  const margin = opts.margin ?? ZOOM.margin;
+  const top = opts.top?.() ?? 0;
+  const bottom = opts.bottom?.() ?? 0;
+  const usable = Math.max(0.3, (innerHeight - top - bottom) / innerHeight);
   const aspect = innerWidth / innerHeight;
-  let halfH = (size.y / 2) * ZOOM.margin;
+  let halfH = ((size.y / 2) * margin) / usable;
   let halfW = halfH * aspect;
-  const minHalfW = (size.x / 2) * ZOOM.margin;
+  const minHalfW = (size.x / 2) * margin;
   if (halfW < minHalfW) {
     halfW = minHalfW;
     halfH = halfW / aspect;
   }
-  return { cx: c.x, cy: c.y, cz: box.max.z + ZOOM.gap, halfW, halfH };
+  // 空けておく上下の画素の分だけ、物を空いている所の中央へずらす
+  const perPx = (2 * halfH) / innerHeight;
+  return { cx: c.x, cy: c.y + ((top - bottom) / 2) * perPx, cz: box.max.z + ZOOM.gap, halfW, halfH };
+}
+
+function zoomToObject(obj, opts = null) {
+  zoom.target = obj;
+  zoom.opts = opts;
+  zoom.focusWin = focusWindow(obj, opts ?? {});
+  zoom.to = 1;
+  hotspots.setEnabled(false);
+  document.body.classList.add('is-zoomed');
 }
 
 function zoomTo(id) {
   const obj = room.focus?.get(id);
   if (!obj) return false;
-  zoom.target = obj;
-  zoom.focusWin = focusWindow(obj);
-  zoom.to = 1;
-  hotspots.setEnabled(false);
-  document.body.classList.add('is-zoomed');
+  zoomToObject(obj);
   zoomBack.hidden = false;
   return true;
 }
@@ -312,13 +324,14 @@ function zoomOut() {
   zoom.to = 0;
   document.body.classList.remove('is-zoomed');
   zoomBack.hidden = true;
+  if (news.index >= 0) endNews();
 }
 
 zoomBack.addEventListener('click', zoomOut);
 addEventListener('keydown', (e) => e.key === 'Escape' && zoomOut());
-// ズーム中は画面のどこを押しても戻る
+// ズーム中は画面のどこを押しても戻る（お知らせを読んでいる間は、下のボタンか Esc で）
 addEventListener('pointerup', (e) => {
-  if (zoom.to && zoom.amount > 0.6 && e.target.tagName === 'CANVAS') zoomOut();
+  if (zoom.to && zoom.amount > 0.6 && e.target.tagName === 'CANVAS' && news.index < 0) zoomOut();
 });
 
 const ease = (x) => x * x * (3 - 2 * x);
@@ -327,9 +340,12 @@ function updateZoom(dt) {
   zoom.amount = zoom.to ? Math.min(1, zoom.amount + step) : Math.max(0, zoom.amount - step);
   if (!zoom.to && zoom.amount === 0 && zoom.target) {
     zoom.target = null;
-    if (document.getElementById('panel').hidden) hotspots.setEnabled(true);
+    zoom.opts = null;
+    if (document.getElementById('panel').hidden && !holo.pending && !about.isOpen && !goods.open && news.index < 0) {
+      hotspots.setEnabled(true);
+    }
   }
-  if (zoom.target) zoom.focusWin = focusWindow(zoom.target);
+  if (zoom.target) zoom.focusWin = focusWindow(zoom.target, zoom.opts ?? {});
   const k = ease(zoom.amount);
   const fw = zoom.focusWin ?? win;
   for (const key of ['cx', 'cy', 'cz', 'halfW', 'halfH']) shownWin[key] = THREE.MathUtils.lerp(win[key], fw[key], k);
@@ -489,6 +505,117 @@ function goodsPxPerScreenPx() {
   return px > 1 ? (goodsPaper.pagePxPerMeter * 0.1) / px : 1;
 }
 
+// ---------- お知らせを読む ----------
+// 一覧は 1 台目のロボットのホログラム（News のパネル）。記事を押すと、2 台目のロボットが映している壁に近づき、
+// その記事の本文を映してもらって読む。下に、前の記事・News 一覧・次の記事のボタンが出る。
+// 壁の投影（最新のお知らせ）を直接押しても、その記事を読める
+const news = { index: -1, aspect: 0 };
+const newsNav = document.getElementById('news-nav');
+const newsLink = newsNav.querySelector('.news-nav-link');
+const newsSr = document.getElementById('news-sr');
+const NEWS_READ = {
+  minAspect: 0.56, // 縦長の画面では、映す形も縦長に（幅÷高さ。これより細くはしない）
+  maxAspect: 4 / 3,
+  margin: 1.04,
+};
+
+// 読むときに映す形：ボタンとロゴの分を除いた、画面の空いている所の形
+function newsAspect() {
+  const space = innerHeight - newsTop() - newsBottom();
+  return THREE.MathUtils.clamp(innerWidth / Math.max(1, space), NEWS_READ.minAspect, NEWS_READ.maxAspect);
+}
+function newsTop() {
+  const logo = document.querySelector('.site-header .logo');
+  return (logo ? logo.getBoundingClientRect().bottom : 60) + 6;
+}
+function newsBottom() {
+  return newsNav.hidden ? 80 : innerHeight - newsNav.getBoundingClientRect().top + 10;
+}
+
+function showNews(i) {
+  const p = room.newsProjector;
+  news.index = i;
+  news.aspect = newsAspect();
+  const article = NEWS_LIST[i];
+  p.read(article, { aspect: news.aspect, index: i, total: NEWS_LIST.length });
+  // 前の記事＝ひとつ古い記事、次の記事＝ひとつ新しい記事（一覧は新しい順）
+  newsNav.querySelector('[data-news-go="prev"]').disabled = i >= NEWS_LIST.length - 1;
+  newsNav.querySelector('[data-news-go="next"]').disabled = i <= 0;
+  const url = String(article.body ?? '').match(/https?:\/\/[^\s<]+/)?.[0];
+  newsLink.hidden = !url;
+  if (url) newsLink.href = url;
+  newsSr.textContent = `${article.date ?? ''} ${article.title ?? ''} ${article.body ?? ''}`;
+  history.replaceState(null, '', `#news-${i + 1}`);
+}
+
+function openNews(i) {
+  const p = room.newsProjector;
+  if (!p || !NEWS_LIST.length) return;
+  i = THREE.MathUtils.clamp(i | 0, 0, NEWS_LIST.length - 1);
+  if (holo.pending) {
+    holo.pending = null;
+    holo.beamTo = 0;
+    room.robot?.release({ win });
+  }
+  if (panel.isOpen) panel.close();
+  if (about.isOpen) about.close();
+  dropGoods();
+  newsNav.hidden = false;
+  showNews(i);
+  document.body.classList.add('is-news');
+  zoomToObject(p.screen, { margin: NEWS_READ.margin, top: newsTop, bottom: newsBottom });
+  zoomBack.hidden = true;
+  newsNav.querySelector('[data-news-go="list"]').focus({ preventScroll: true });
+}
+
+// 読むのをやめる（ズームを戻すのは zoomOut）
+function endNews() {
+  news.index = -1;
+  newsNav.hidden = true;
+  newsSr.textContent = '';
+  document.body.classList.remove('is-news');
+  room.newsProjector?.read(null);
+  if (/^#news-\d+$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
+}
+
+newsNav.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-news-go]')?.dataset.newsGo;
+  if (!go || news.index < 0) return;
+  if (go === 'prev') showNews(Math.min(NEWS_LIST.length - 1, news.index + 1));
+  else if (go === 'next') showNews(Math.max(0, news.index - 1));
+  else if (go === 'close') zoomOut();
+  else if (go === 'list') {
+    zoomOut();
+    requestSection('news');
+  }
+});
+addEventListener('keydown', (e) => {
+  if (news.index < 0) return;
+  if (e.key === 'ArrowLeft' && news.index < NEWS_LIST.length - 1) showNews(news.index + 1);
+  if (e.key === 'ArrowRight' && news.index > 0) showNews(news.index - 1);
+});
+// 画面の形が大きく変わったら（スマホを横にしたなど）、映す形も替える
+addEventListener('resize', () => {
+  if (news.index >= 0 && Math.abs(newsAspect() - news.aspect) > 0.06) showNews(news.index);
+});
+// ホログラムの一覧で記事を押したとき
+document.getElementById('panel-body').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-news]');
+  if (item) openNews(Number(item.dataset.news));
+});
+
+// 壁に映っている最新のお知らせを押したか（手前に家具などがあればそちらが先）
+function hitNewsWall(x, y) {
+  const p = room.newsProjector;
+  if (!p?.shown || news.index >= 0 || zoom.target || panel.isOpen || goods.open || about.isOpen) return false;
+  robotNdc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  robotRay.setFromCamera(robotNdc, camera);
+  const hit = robotRay
+    .intersectObject(room.group, true)
+    .find((h) => h.object.isMesh && isShown(h.object) && (h.object === p.screen || !h.object.userData.noPick));
+  return hit?.object === p.screen;
+}
+
 // ---------- ロボットを押す ----------
 // クリック・タップすると、ぴょんと跳ねて首を振り、こちらを見る（studioRoom.js の poke）
 const robotRay = new THREE.Raycaster();
@@ -536,6 +663,7 @@ addEventListener('pointerup', (e) => {
   }
   if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
   else if (hitMoon(e.clientX, e.clientY)) room.planetarium.toggle();
+  else if (hitNewsWall(e.clientX, e.clientY)) openNews(0);
 });
 addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') robotPointer = { x: e.clientX, y: e.clientY, dirty: true };
@@ -546,7 +674,8 @@ function updateRobotHover() {
   robotPointer.dirty = false;
   const over = goods.open
     ? !!goodsPaper.linkAt(hitGoodsPaper(robotPointer.x, robotPointer.y)?.uv)
-    : !panel.isOpen && (hitRobot(robotPointer.x, robotPointer.y) || hitMoon(robotPointer.x, robotPointer.y));
+    : !panel.isOpen &&
+      (hitRobot(robotPointer.x, robotPointer.y) || hitMoon(robotPointer.x, robotPointer.y) || hitNewsWall(robotPointer.x, robotPointer.y));
   if (over === robotHovered) return;
   robotHovered = over;
   document.body.style.cursor = over ? 'pointer' : '';
@@ -723,6 +852,7 @@ renderer.setAnimationLoop(() => {
   updateHologram(dt, t);
   updateGoods(dt);
   // ほかのメニューを開いている（呼んでいる・ズームしている）間は、お知らせのロボットを画面の外へはけさせる
+  // （お知らせを読んでいる間は、newsProjector.read で映し続ける）
   room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen || goods.open);
   renderer.render(scene, camera);
 });
@@ -754,3 +884,4 @@ if (room.shutter && fixedShutter !== null) {
 
 const initial = location.hash.slice(1);
 if (SECTIONS[initial]) requestSection(initial);
+else if (/^news-\d+$/.test(initial)) openNews(Number(initial.slice(5)) - 1);

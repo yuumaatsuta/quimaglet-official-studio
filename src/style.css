@@ -658,20 +658,130 @@ body.is-goods .hero {
   }
 }
 
-/* News ページのお知らせの並び */
-.news-item + .news-item {
-  margin-top: 1.4em;
-  padding-top: 1.2em;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
+/* About のスマホ版をスクロールしている間は、左上のロゴを隠す（文字に重なるので。aboutView.js） */
+.site-header .logo {
+  transition: opacity 0.25s ease;
 }
-.news-item .news-date {
+body.is-about-scrolled .site-header .logo {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- News ---------- */
+/* ホログラムの一覧（content.js の newsListHtml）。押すと、2 台目のロボットが映す壁に近づいて本文を読む */
+.news-list {
+  list-style: none;
   margin: 0;
-  opacity: 0.7;
-  font-size: 0.9em;
+  padding: 0 !important;
+  display: grid;
+  gap: 10px;
 }
-.news-item h3 {
-  margin: 0.2em 0 0.4em;
-  font-size: 1.05em;
+.news-link {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(120, 190, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(30, 90, 220, 0.14);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-shadow: inherit;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+.news-link:hover,
+.news-link:focus-visible {
+  background: rgba(60, 140, 255, 0.3);
+  border-color: rgba(170, 220, 255, 0.8);
+  outline: none;
+}
+.news-link .news-date {
+  color: var(--holo-accent);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.news-link .news-title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.news-link .news-excerpt {
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.8;
+}
+.news-link .news-more {
+  justify-self: end;
+  color: var(--holo-accent);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+/* 壁の本文を読んでいる間の、下のボタン */
+.news-nav {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+}
+.news-nav[hidden] {
+  display: none;
+}
+.news-nav button,
+.news-nav a {
+  padding: 10px 18px;
+  border: 1px solid rgba(150, 205, 255, 0.6);
+  border-radius: 999px;
+  background: rgba(8, 30, 90, 0.55);
+  color: #e6f3ff;
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 0 14px rgba(60, 140, 255, 0.25);
+  transition: background 0.2s ease;
+}
+.news-nav button:hover:not(:disabled),
+.news-nav a:hover {
+  background: rgba(30, 90, 220, 0.6);
+}
+.news-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.news-nav .news-nav-close {
+  padding: 10px 14px;
+}
+@media (max-width: 600px) {
+  .news-nav {
+    gap: 6px;
+  }
+  .news-nav button,
+  .news-nav a {
+    padding: 9px 12px;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+  }
+}
+/* 読んでいる間は、右上の設定ボタンや IMMERSE を退かす */
+body.is-news .hero,
+body.is-news .settings-toggle {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ---------- Goods（グッズの展開状況。content.js の goodsItem） ---------- */
