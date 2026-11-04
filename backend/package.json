@@ -1,0 +1,14 @@
+{
+  "name": "quimaglet-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "node scripts/seed.mjs",
+    "setup": "node scripts/setup.mjs",
+    "deploy": "wrangler deploy && wrangler deploy --env admin",
+    "dev:local": "node scripts/dev.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.157.0"
+  }
+}

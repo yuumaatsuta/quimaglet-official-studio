@@ -1,0 +1,4 @@
+# 手元で動かすとき（npm run dev:local）だけ使う。.dev.vars という名前でコピーする
+DEV_AUTH_BYPASS=1
+ROLE=dev
+PUBLIC_BASE=http://127.0.0.1:8788

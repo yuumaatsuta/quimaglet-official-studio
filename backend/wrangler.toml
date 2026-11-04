@@ -1,0 +1,37 @@
+# 2 つの Worker を同じコード（src/worker.js）から作る。
+#   quimaglet-api   … サイトが読む公開の API と画像（npx wrangler deploy）
+#   quimaglet-admin … 管理画面と書き換えの API。Cloudflare Access で守る（npx wrangler deploy --env admin）
+# database_id は npm run setup が書き込む
+
+name = "quimaglet-api"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+ROLE = "public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "quimaglet"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[env.admin]
+name = "quimaglet-admin"
+workers_dev = true
+assets = { directory = "./admin", binding = "ASSETS" }
+
+[env.admin.vars]
+ROLE = "admin"
+SITE_URL = "https://yuumaatsuta.github.io/quimaglet-official-studio/"
+# 公開側の Worker の URL（アップロードした画像の URL になる）。npm run setup が書き込む
+PUBLIC_BASE = ""
+# Cloudflare Access の設定（README の手順 3）。両方そろうまで、管理画面の API は誰にも使えない
+ACCESS_TEAM_DOMAIN = ""
+ACCESS_AUD = ""
+
+[[env.admin.d1_databases]]
+binding = "DB"
+database_name = "quimaglet"
+database_id = "00000000-0000-0000-0000-000000000000"
+

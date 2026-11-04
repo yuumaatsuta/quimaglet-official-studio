@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>QUIMAGLET 管理画面</title>
+    <style>
+      :root {
+        --bg: #111214;
+        --panel: #1b1d21;
+        --line: #33363d;
+        --fg: #eceae6;
+        --dim: #9a9ca3;
+        --accent: #ffd36a;
+        --danger: #ff6b5a;
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15px/1.6 system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 20px;
+        background: rgba(17, 18, 20, 0.95);
+        border-bottom: 1px solid var(--line);
+      }
+      header h1 {
+        margin: 0 auto 0 0;
+        font-size: 16px;
+        letter-spacing: 0.08em;
+      }
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 20px 20px 80px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 18px 20px;
+        margin-bottom: 18px;
+      }
+      h2 {
+        margin: 0 0 4px;
+        font-size: 18px;
+      }
+      .note {
+        margin: 0 0 14px;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      label {
+        display: block;
+        margin: 12px 0 4px;
+        font-size: 13px;
+        color: var(--dim);
+      }
+      input,
+      textarea {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #0c0d0f;
+        color: var(--fg);
+        font: inherit;
+      }
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+      }
+      textarea.tall {
+        min-height: 420px;
+      }
+      button {
+        padding: 8px 14px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #2a2d33;
+        color: var(--fg);
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #111;
+        font-weight: 700;
+      }
+      button.danger {
+        color: var(--danger);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 16px;
+      }
+      .tabs button[aria-selected='true'] {
+        background: var(--fg);
+        color: #111;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .row > * {
+        flex: 1;
+      }
+      .news-item {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin-bottom: 12px;
+      }
+      .news-item .tools {
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
+        margin-top: 10px;
+      }
+      #status {
+        font-size: 13px;
+        color: var(--dim);
+      }
+      #status.error {
+        color: var(--danger);
+      }
+      #status.ok {
+        color: var(--accent);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .img-field {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .img-field input {
+        flex: 1;
+      }
+      .img-field .thumb {
+        flex: none;
+        width: 72px;
+        height: 54px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #0c0d0f center / cover no-repeat;
+      }
+      .img-field .thumb:not([style*='url']) {
+        visibility: hidden;
+      }
+      .pill {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: 1px solid var(--line);
+        color: var(--dim);
+      }
+      .pill.live {
+        color: #7be07b;
+        border-color: #3d6b3d;
+      }
+      .pill.draft {
+        color: var(--accent);
+        border-color: #6b5a2d;
+      }
+      .pill.later {
+        color: #8cc8ff;
+        border-color: #2d4f6b;
+      }
+      .news-item.is-draft {
+        border-style: dashed;
+      }
+      select {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #0c0d0f;
+        color: var(--fg);
+        font: inherit;
+      }
+      #who {
+        font-size: 13px;
+        color: var(--dim);
+      }
+      .rev {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+      }
+      .rev span {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>QUIMAGLET 管理画面</h1>
+      <span id="who"></span>
+      <span id="status">読み込み中…</span>
+      <a id="site-link" href="#" target="_blank" rel="noopener" style="color: var(--dim)">サイトを開く ↗</a>
+      <button type="button" id="save" class="primary" disabled>保存</button>
+    </header>
+
+    <main>
+      <section id="denied" hidden>
+        <h2>読み込めませんでした</h2>
+        <p class="note" id="denied-note"></p>
+      </section>
+
+      <div id="editor" hidden>
+        <div class="tabs" role="tablist">
+          <button type="button" data-tab="news" aria-selected="true">News（お知らせ）</button>
+          <button type="button" data-tab="about" aria-selected="false">About</button>
+          <button type="button" data-tab="works" aria-selected="false">Works</button>
+          <button type="button" data-tab="goods" aria-selected="false">Goods</button>
+          <button type="button" data-tab="contact" aria-selected="false">Contact</button>
+          <button type="button" data-tab="history" aria-selected="false">履歴</button>
+        </div>
+
+        <section data-panel="news">
+          <h2>News（お知らせ）</h2>
+          <p class="note">
+            上から新しい順に並びます。公開中でいちばん上のお知らせが、部屋の奥の壁にロボットが映す「最新のお知らせ」になります。本文の URL は、壁の投影の中で押せるリンクになります。<br />
+            「下書き」はサイトに出ません。「公開日時」を入れると、その時刻になってから出ます（保存から 1 分ほどで反映）。
+          </p>
+          <button type="button" id="news-add">＋ お知らせを追加（いちばん上に）</button>
+          <div id="news-list" style="margin-top: 12px"></div>
+        </section>
+
+        <section data-panel="about" hidden>
+          <h2>About</h2>
+          <p class="note">いまの About は、バンドのデザイン画像を表示しています。ここの文章は、画像が読めないときと読み上げ用に使います。</p>
+          <label for="about-title">タイトル</label>
+          <input id="about-title" />
+          <label for="about-main">本文（空行で段落を分けます）</label>
+          <textarea id="about-main" class="tall"></textarea>
+          <label for="about-fill">まわりの言葉（1 行に 1 つ）</label>
+          <textarea id="about-fill" class="tall"></textarea>
+        </section>
+
+        <section data-panel="works" hidden>
+          <h2>Works</h2>
+          <label for="works-title">タイトル</label>
+          <input id="works-title" />
+          <label for="works-body">本文（空行で段落。URL とメールアドレスはリンクになります）</label>
+          <textarea id="works-body" class="tall"></textarea>
+        </section>
+
+        <section data-panel="goods" hidden>
+          <h2>Goods（グッズ）</h2>
+          <p class="note">Goods を選ぶと、ロボットがこの内容を古い紙のメニューにして持ってきます。購入ページの URL を入れると、紙の「ONLINE STORE」から開けます。状況の言葉で色が変わります（販売中＝緑、予約受付中＝青、準備中・近日＝黄、売り切れ・完売＝赤）。</p>
+          <label for="goods-title">タイトル</label>
+          <input id="goods-title" />
+          <label for="goods-body">はじめの文章（空でもよい）</label>
+          <textarea id="goods-body"></textarea>
+          <div id="goods-list"></div>
+          <button type="button" id="goods-add">＋ グッズを追加（いちばん下に）</button>
+        </section>
+
+        <section data-panel="contact" hidden>
+          <h2>Contact</h2>
+          <label for="contact-title">タイトル</label>
+          <input id="contact-title" />
+          <label for="contact-body">本文（空行で段落。URL とメールアドレスはリンクになります）</label>
+          <textarea id="contact-body" class="tall"></textarea>
+        </section>
+
+        <section data-panel="history" hidden>
+          <h2>履歴</h2>
+          <p class="note">保存するたびに、その時の中身を控えています（新しい方から 300 件）。「この版を読み込む」で画面に戻し、「保存」を押すとその内容に戻ります。</p>
+          <div id="rev-list"></div>
+        </section>
+      </div>
+    </main>
+
+    <template id="news-template">
+      <div class="news-item">
+        <input type="hidden" data-field="id" />
+        <div class="row">
+          <div style="flex: 0 0 9.5em">
+            <label>日付（表示用）</label>
+            <input data-field="date" placeholder="2026.11.01" />
+          </div>
+          <div>
+            <label>タイトル</label>
+            <input data-field="title" />
+          </div>
+        </div>
+        <label>本文</label>
+        <textarea data-field="body"></textarea>
+        <label>画像（「画像を選ぶ」でアップロード。URL を直接書いてもよい。空でもよい）</label>
+        <div class="img-field">
+          <span class="thumb"></span>
+          <input data-field="image" placeholder="https://..." />
+          <button type="button" data-act="upload">画像を選ぶ</button>
+        </div>
+        <div class="row">
+          <div style="flex: 0 0 11em">
+            <label>状態</label>
+            <select data-field="status">
+              <option value="published">公開</option>
+              <option value="draft">下書き</option>
+            </select>
+          </div>
+          <div>
+            <label>公開日時（空ならすぐ）</label>
+            <input data-field="publishAt" type="datetime-local" />
+          </div>
+          <div style="flex: 0 0 7em; padding-top: 30px"><span class="pill" data-state></span></div>
+        </div>
+        <div class="tools">
+          <button type="button" data-act="up">↑</button>
+          <button type="button" data-act="down">↓</button>
+          <button type="button" data-act="remove" class="danger">削除</button>
+        </div>
+      </div>
+    </template>
+
+    <template id="goods-template">
+      <div class="news-item goods-item">
+        <div class="row">
+          <div>
+            <label>名前</label>
+            <input data-field="name" placeholder="ロゴ T シャツ" />
+          </div>
+          <div style="flex: 0 0 9.5em">
+            <label>状況</label>
+            <input data-field="status" list="goods-status" placeholder="販売中" />
+          </div>
+          <div style="flex: 0 0 9.5em">
+            <label>価格</label>
+            <input data-field="price" placeholder="¥3,500" />
+          </div>
+        </div>
+        <label>説明（サイズ・色・販売場所など）</label>
+        <textarea data-field="note"></textarea>
+        <label>画像（「画像を選ぶ」でアップロード。URL を直接書いてもよい。空でもよい）</label>
+        <div class="img-field">
+          <span class="thumb"></span>
+          <input data-field="image" placeholder="https://..." />
+          <button type="button" data-act="upload">画像を選ぶ</button>
+        </div>
+        <label>購入ページの URL（空でもよい）</label>
+        <input data-field="url" placeholder="https://..." />
+        <div class="tools">
+          <button type="button" data-act="up">↑</button>
+          <button type="button" data-act="down">↓</button>
+          <button type="button" data-act="remove" class="danger">削除</button>
+        </div>
+      </div>
+    </template>
+    <datalist id="goods-status">
+      <option value="販売中"></option>
+      <option value="予約受付中"></option>
+      <option value="準備中"></option>
+      <option value="売り切れ"></option>
+    </datalist>
+    <input type="file" id="file" accept="image/*" hidden />
+
+    <script type="module">
+      // 中身は Cloudflare の D1 に保存する（backend/src/worker.js）。この画面は Cloudflare Access のログインの内側にある。
+      // 保存すると、サイトには 1 分ほどで反映される（デプロイは要らない）
+      const $ = (id) => document.getElementById(id);
+      const status = (text, kind = '') => {
+        $('status').textContent = text;
+        $('status').className = kind;
+      };
+      let version = 0;
+      let siteUrl = '';
+      let dirty = false;
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, { credentials: 'same-origin', ...options });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const err = new Error(body.error || `HTTP ${res.status}`);
+          err.status = res.status;
+          err.body = body;
+          throw err;
+        }
+        return body;
+      }
+
+      async function load() {
+        status('読み込み中…');
+        try {
+          const me = await api('/api/admin/me');
+          $('who').textContent = me.email;
+          siteUrl = me.site;
+          $('site-link').href = me.site || '#';
+          const { doc, version: v, updatedAt, updatedBy } = await api('/api/admin/content');
+          version = v;
+          fillForm(doc);
+          $('editor').hidden = false;
+          $('save').disabled = false;
+          dirty = false;
+          status(updatedAt ? `最後の保存：${fmt(updatedAt)}（${updatedBy}）` : '読み込みました', 'ok');
+        } catch (err) {
+          $('denied').hidden = false;
+          $('denied-note').textContent =
+            err.status === 401
+              ? 'ログインが確かめられませんでした。Cloudflare Access の設定（ACCESS_TEAM_DOMAIN と ACCESS_AUD）を確かめるか、ページを読み込み直してログインし直してください。'
+              : `エラー：${err.message}`;
+          status('読み込めませんでした', 'error');
+        }
+      }
+
+      const fmt = (iso) => new Date(iso).toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' });
+      // ISO（UTC）⇔ datetime-local（この端末の時刻）
+      const toLocalInput = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+      };
+      const fromLocalInput = (v) => (v ? new Date(v).toISOString() : '');
+
+      // ---------- フォーム ----------
+
+      function fillForm(doc) {
+        const p = doc.pages ?? {};
+        $('about-title').value = p.about?.title ?? 'About';
+        $('about-main').value = p.about?.main ?? '';
+        $('about-fill').value = (p.about?.fill ?? []).join('\n');
+        for (const id of ['works', 'contact']) {
+          $(`${id}-title`).value = p[id]?.title ?? '';
+          $(`${id}-body`).value = p[id]?.body ?? '';
+        }
+        renderList('news', (doc.news ?? []).map((n) => ({ ...n, publishAt: toLocalInput(n.publishAt) })));
+        $('goods-title').value = p.goods?.title ?? 'Goods';
+        $('goods-body').value = p.goods?.body ?? '';
+        renderList('goods', p.goods?.items ?? []);
+      }
+
+      // 並べ替えできるリスト（お知らせ・グッズ）
+      function renderList(id, list) {
+        const box = $(`${id}-list`);
+        box.innerHTML = '';
+        for (const item of list) {
+          const node = $(`${id}-template`).content.firstElementChild.cloneNode(true);
+          for (const input of node.querySelectorAll('[data-field]')) input.value = item[input.dataset.field] ?? input.value ?? '';
+          box.append(node);
+          refresh(node);
+        }
+      }
+      function readList(id) {
+        return [...$(`${id}-list`).children].map((node) => {
+          const item = {};
+          for (const input of node.querySelectorAll('[data-field]')) item[input.dataset.field] = input.value.trim();
+          return item;
+        });
+      }
+      // サムネイルと、公開の状態の札を描き直す
+      function refresh(node) {
+        const img = node.querySelector('[data-field="image"]')?.value.trim();
+        const thumb = node.querySelector('.thumb');
+        if (thumb) thumb.style.backgroundImage = /^https?:\/\//.test(img ?? '') ? `url("${img.replace(/"/g, '%22')}")` : '';
+        const pill = node.querySelector('[data-state]');
+        if (!pill) return;
+        const draft = node.querySelector('[data-field="status"]').value === 'draft';
+        const at = node.querySelector('[data-field="publishAt"]').value;
+        const later = !draft && at && new Date(at) > new Date();
+        pill.className = `pill ${draft ? 'draft' : later ? 'later' : 'live'}`;
+        pill.textContent = draft ? '下書き' : later ? '予約' : '公開中';
+        node.classList.toggle('is-draft', draft);
+      }
+
+      for (const id of ['news', 'goods']) {
+        $(`${id}-list`).addEventListener('input', (e) => refresh(e.target.closest('.news-item')));
+        $(`${id}-list`).addEventListener('change', (e) => refresh(e.target.closest('.news-item')));
+        $(`${id}-list`).addEventListener('click', (e) => {
+          const act = e.target.dataset?.act;
+          if (!act) return;
+          const node = e.target.closest('.news-item');
+          dirty = true;
+          if (act === 'remove' && confirm(id === 'news' ? 'このお知らせを削除しますか？' : 'このグッズを削除しますか？')) node.remove();
+          if (act === 'up' && node.previousElementSibling) node.previousElementSibling.before(node);
+          if (act === 'down' && node.nextElementSibling) node.nextElementSibling.after(node);
+          if (act === 'upload') pickImage(node);
+        });
+      }
+      $('news-add').addEventListener('click', () => {
+        const d = new Date();
+        const date = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+        renderList('news', [{ id: crypto.randomUUID(), date, title: '', body: '', image: '', status: 'draft', publishAt: '' }, ...readList('news')]);
+        $('news-list').querySelector('[data-field="title"]').focus();
+        dirty = true;
+      });
+      $('goods-add').addEventListener('click', () => {
+        renderList('goods', [...readList('goods'), { name: '', status: '準備中', price: '', note: '', image: '', url: '' }]);
+        $('goods-list').lastElementChild.querySelector('[data-field="name"]').focus();
+        dirty = true;
+      });
+
+      // ---------- 画像 ----------
+      // 選んだ画像を、長い辺 1600px までの WebP に縮めてから送る
+      let pickFor = null;
+      function pickImage(node) {
+        pickFor = node;
+        $('file').value = '';
+        $('file').click();
+      }
+      $('file').addEventListener('change', async () => {
+        const file = $('file').files[0];
+        const node = pickFor;
+        if (!file || !node) return;
+        const btn = node.querySelector('[data-act="upload"]');
+        btn.disabled = true;
+        status('画像を送っています…');
+        try {
+          const blob = await shrink(file, 1600);
+          const { url } = await api('/api/admin/images', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+          node.querySelector('[data-field="image"]').value = url;
+          refresh(node);
+          dirty = true;
+          status('画像を入れました。「保存」を押すとサイトに出ます', 'ok');
+        } catch (err) {
+          status(`画像を送れませんでした：${err.message}`, 'error');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      async function shrink(file, max) {
+        const bmp = await createImageBitmap(file);
+        const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(bmp.width * k);
+        c.height = Math.round(bmp.height * k);
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        for (const q of [0.86, 0.75, 0.6]) {
+          const blob = await new Promise((r) => c.toBlob(r, 'image/webp', q));
+          if (blob && blob.type === 'image/webp' && blob.size < 1_800_000) return blob;
+        }
+        // WebP で書き出せないブラウザ（古い Safari など）は JPEG で
+        return new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
+      }
+
+      // ---------- タブ ----------
+      document.querySelector('.tabs').addEventListener('click', (e) => {
+        const tab = e.target.dataset?.tab;
+        if (!tab) return;
+        for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+        for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== tab;
+        if (tab === 'history') loadHistory();
+      });
+
+      // ---------- 履歴 ----------
+      async function loadHistory() {
+        const box = $('rev-list');
+        box.textContent = '読み込み中…';
+        try {
+          const { revisions } = await api('/api/admin/revisions');
+          box.innerHTML = '';
+          for (const r of revisions) {
+            const row = document.createElement('div');
+            row.className = 'rev';
+            const text = document.createElement('span');
+            text.textContent = `版 ${r.version}　${fmt(r.at)}　${r.by}`;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'この版を読み込む';
+            btn.addEventListener('click', async () => {
+              if (dirty && !confirm('保存していない変更は消えます。読み込みますか？')) return;
+              const rev = await api(`/api/admin/revisions/${r.id}`);
+              fillForm(rev.data);
+              dirty = true;
+              status(`版 ${r.version} を読み込みました。「保存」を押すとこの内容に戻ります`, 'ok');
+            });
+            row.append(text, btn);
+            box.append(row);
+          }
+          if (!revisions.length) box.textContent = 'まだありません';
+        } catch (err) {
+          box.textContent = `読み込めませんでした：${err.message}`;
+        }
+      }
+
+      // ---------- 保存 ----------
+      function collect() {
+        return {
+          pages: {
+            about: {
+              title: $('about-title').value.trim() || 'About',
+              main: $('about-main').value.trim(),
+              fill: $('about-fill').value.split('\n').map((s) => s.trim()).filter(Boolean),
+            },
+            works: { title: $('works-title').value.trim() || 'Works', body: $('works-body').value.trim() },
+            goods: {
+              title: $('goods-title').value.trim() || 'Goods',
+              body: $('goods-body').value.trim(),
+              items: readList('goods').filter((it) => it.name),
+            },
+            contact: { title: $('contact-title').value.trim() || 'Contact', body: $('contact-body').value.trim() },
+          },
+          news: readList('news')
+            .filter((n) => n.title || n.body)
+            .map((n) => ({ ...n, publishAt: fromLocalInput(n.publishAt) })),
+        };
+      }
+
+      $('save').addEventListener('click', async () => {
+        $('save').disabled = true;
+        status('保存中…');
+        try {
+          const res = await api('/api/admin/content', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ doc: collect(), baseVersion: version }),
+          });
+          version = res.version;
+          dirty = false;
+          status(`保存しました（${fmt(res.updatedAt)}）。サイトには 1 分ほどで出ます`, 'ok');
+        } catch (err) {
+          status(
+            err.status === 409
+              ? 'ほかの人が先に保存していました。いまの変更を控えてから、ページを読み込み直してください'
+              : `保存できませんでした：${err.message}`,
+            'error',
+          );
+        } finally {
+          $('save').disabled = false;
+        }
+      });
+
+      // 保存していない変更があるまま閉じようとしたら止める
+      $('editor').addEventListener('input', () => (dirty = true));
+      addEventListener('beforeunload', (e) => {
+        if (dirty) e.preventDefault();
+      });
+
+      load();
+    </script>
+  </body>
+</html>

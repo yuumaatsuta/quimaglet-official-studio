@@ -51,18 +51,32 @@ function excerpt(text) {
 }
 SECTIONS.news.body = newsListHtml();
 
-// public/content.json を読んで上の入れ物を書き換える。待ちすぎないよう、時間がかかるときは仮の文章のまま進む
+// 中身を読んで上の入れ物を書き換える。
+// まずバックエンド（backend/ の Cloudflare Worker。管理画面で書き換える）から。URL は .env の VITE_CONTENT_API。
+// 読めなければ public/content.json（控え）から。待ちすぎないよう、時間がかかるときは仮の文章のまま進む
+const CONTENT_API = (import.meta.env.VITE_CONTENT_API ?? '').replace(/\/$/, '');
+
 export async function loadContent(timeoutMs = 4000) {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    // 管理画面で書き換えた直後でも新しい中身が届くよう、毎回別の URL にする
-    const res = await fetch(`${import.meta.env.BASE_URL}content.json?t=${Date.now()}`, { signal: ctrl.signal });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error(`content.json: ${res.status}`);
-    applyContent(await res.json());
-  } catch (err) {
-    console.warn('[content]', err);
+  const sources = [
+    ...(CONTENT_API ? [`${CONTENT_API}/api/content`] : []),
+    // 書き換えた直後でも新しい中身が届くよう、毎回別の URL にする
+    `${import.meta.env.BASE_URL}content.json?t=${Date.now()}`,
+  ];
+  const start = performance.now();
+  for (const url of sources) {
+    try {
+      const left = timeoutMs - (performance.now() - start);
+      if (left < 300) break;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), left);
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`${url}: ${res.status}`);
+      applyContent(await res.json());
+      return;
+    } catch (err) {
+      console.warn('[content]', err);
+    }
   }
 }
 
