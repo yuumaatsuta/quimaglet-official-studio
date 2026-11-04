@@ -27,8 +27,8 @@ SITE_URL = "https://yuumaatsuta.github.io/quimaglet-official-studio/"
 # 公開側の Worker の URL（アップロードした画像の URL になる）。npm run setup が書き込む
 PUBLIC_BASE = "https://quimaglet-api.quimaglet.workers.dev"
 # Cloudflare Access の設定（README の手順 3）。両方そろうまで、管理画面の API は誰にも使えない
-ACCESS_TEAM_DOMAIN = ""
-ACCESS_AUD = ""
+ACCESS_TEAM_DOMAIN = "https://cold-wind-5f4d.cloudflareaccess.com"
+ACCESS_AUD = "559795ee2928c872d08c3e010659a1a56640d813b060dcde547f065deb1adc00"
 
 [[env.admin.d1_databases]]
 binding = "DB"
