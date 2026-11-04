@@ -21,8 +21,9 @@ const PIECES = {
   lyric: { src: 'about-pc-lyric.webp', w: 1055, h: 2313, fill: true },
 };
 const LYRIC = {
-  minWidth: 110, // これより細くしか入らないなら出さない（px）
-  minRatio: 0.45, // ほかの絵の倍率のこれ未満にしか縮められないなら出さない（文字が小さすぎる）
+  minWidth: 64, // 空きがこれより狭いなら出さない（px）
+  minRatio: 0.3, // 文字の高さが、ほかの絵の倍率のこれ未満にしかできないなら出さない（文字が小さすぎる）
+  maxSqueeze: 0.8, // 空きが細いときは、横にここまで縮める（これ以上細いなら全体を小さくする）
 };
 const PHONE = { src: 'about-sp.webp', w: 1088, h: 9537 };
 const PC_MIN_SCALE = 0.2; // これより小さく縮めないと収まらない画面では、スマホ用の縦長の絵にする
@@ -135,25 +136,28 @@ export function createAboutView({ onOpen, onClose } = {}) {
     return at;
   }
 
-  // 美月さん（左下）と瑛太さん（右下）のあいだの空き。広ければ一節の絵を置く場所 [x, y, 倍率] を、狭ければ null を返す
+  // 美月さん（左下）と瑛太さん（右下）のあいだの空き。広ければ一節の絵を置く場所 [x, y, 幅, 高さ] を、狭ければ null を返す。
+  // 幅は空きいっぱい（左右のブロックとの距離は保つ）。空きが広いほど、絵を横に引き伸ばす
   function placeLyric(at, k, box) {
     const P = PIECES;
     const L = P.lyric;
-    const g = box.gap * 2;
+    const g = box.gap * 1.3;
     const x0 = at.mizuki[0] + P.mizuki.w * k + g;
     const x1 = at.asaba[0] + Math.min(...P.asaba.ink.map((r) => r[0])) * k - g;
     const above = Math.max(at.center[1] + P.center.h * k, at.title[1] + P.title.h * k, at.atsuta[1] + P.atsuta.h * k);
     const y0 = above + g;
     const y1 = box.b;
-    const s = Math.min(k, (x1 - x0) / L.w, (y1 - y0) / L.h);
-    if (s <= 0 || L.w * s < LYRIC.minWidth || s < k * LYRIC.minRatio) return null;
-    const w = L.w * s;
-    const h = L.h * s;
-    // 横は空きのまんなか、縦は美月さんの絵と高さのまんなかをそろえる（空きからははみ出さない）
+    const w = x1 - x0;
+    // 高さの倍率：ほかの絵と同じ倍率まで。空きが細すぎて横に縮めきれないときは小さくする
+    const sy = Math.min(k, (y1 - y0) / L.h, w / (L.w * LYRIC.maxSqueeze));
+    if (w < LYRIC.minWidth || sy < k * LYRIC.minRatio) return null;
+    const h = L.h * sy;
+    // 縦は美月さんの絵と高さのまんなかをそろえる（空きからははみ出さない）
     const mid = at.mizuki[1] + (P.mizuki.h * k) / 2;
     const y = Math.min(Math.max(mid - h / 2, y0), y1 - h);
-    return [(x0 + x1 - w) / 2, y, s];
+    return [x0, y, w, h];
   }
+
 
   // 文字の塊どうし・ロゴや設定ボタンと重ならず、画面からはみ出さないか
   function fits(k, box, beside) {
@@ -219,10 +223,10 @@ export function createAboutView({ onOpen, onClose } = {}) {
         const p = PIECES[name];
         el.hidden = !at[name];
         if (!at[name]) continue;
-        const [x, y, s = k] = at[name];
+        const [x, y, w = p.w * k, h = p.h * k] = at[name];
         setSrc(el, p.src);
-        el.style.width = `${(p.w * s).toFixed(1)}px`;
-        el.style.height = `${(p.h * s).toFixed(1)}px`;
+        el.style.width = `${w.toFixed(1)}px`;
+        el.style.height = `${h.toFixed(1)}px`;
         el.style.left = `${x.toFixed(1)}px`;
         el.style.top = `${y.toFixed(1)}px`;
       }
