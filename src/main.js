@@ -3,10 +3,11 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdaptiveResolution } from './adaptiveResolution.js';
 import { CONFIG } from './config.js';
 import { createAboutView } from './aboutView.js';
-import { GOODS, NEWS_LIST, SECTIONS, loadContent } from './content.js';
+import { GOODS, MEMBERS, NEWS_LIST, SECTIONS, loadContent, memberHtml } from './content.js';
 import { createGoodsPaper } from './goodsPaper.js';
 import { createHotspots, isPickable, isShown } from './hotspots.js';
 import { createInput, isTouchDevice } from './input.js';
+import { createMemberCard } from './memberCard.js';
 import { createPanel } from './panel.js';
 import { loadRoom } from './room.js';
 import { KINDS, LOCATION, fetchCurrentWeather, weatherParams } from './weather.js';
@@ -317,6 +318,7 @@ const robotEye = new THREE.Vector3();
 const zoomBack = document.getElementById('zoom-back');
 
 // opts.margin：余白。opts.top / opts.bottom()：画面の上下で空けておく画素（ロゴやボタンの分）。
+// opts.left / opts.right()：左右で空けておく画素（横に出すホログラムの分）。opts.minHalfH：映す範囲の高さの半分の最小（m）。
 // 物の大きさは、床の影など押せない飾りを含めずに測る（物そのものが押せない飾りのとき＝壁の投影は、それを測る）
 function focusWindow(obj, opts = {}) {
   const box = new THREE.Box3();
@@ -326,18 +328,25 @@ function focusWindow(obj, opts = {}) {
   const margin = opts.margin ?? ZOOM.margin;
   const top = opts.top?.() ?? 0;
   const bottom = opts.bottom?.() ?? 0;
+  const left = opts.left?.() ?? 0;
+  const right = opts.right?.() ?? 0;
   const usable = Math.max(0.3, (innerHeight - top - bottom) / innerHeight);
+  const usableW = Math.max(0.3, (innerWidth - left - right) / innerWidth);
   const aspect = innerWidth / innerHeight;
-  let halfH = ((size.y / 2) * margin) / usable;
+  let halfH = Math.max(((size.y / 2) * margin) / usable, opts.minHalfH ?? 0);
   let halfW = halfH * aspect;
-  const minHalfW = (size.x / 2) * margin;
+  const minHalfW = ((size.x / 2) * margin) / usableW;
   if (halfW < minHalfW) {
     halfW = minHalfW;
     halfH = halfW / aspect;
   }
   // 空けておく上下の画素の分だけ、物を空いている所の中央へずらす
   const perPx = (2 * halfH) / innerHeight;
-  return { cx: c.x, cy: c.y + ((top - bottom) / 2) * perPx, cz: box.max.z + ZOOM.gap, halfW, halfH };
+  const cx = c.x + ((right - left) / 2) * perPx;
+  // opts.floorView：床に置いた物。床を、空けておく下の画素のすぐ上に合わせる
+  // （低い物でも床に目を付けず、床のチップも画面に入る。上の空きにはホログラムを出す）
+  if (opts.floorView) return { cx, cy: halfH - bottom * perPx - 0.05, cz: box.max.z + ZOOM.gap, halfW, halfH };
+  return { cx, cy: c.y + ((top - bottom) / 2) * perPx, cz: box.max.z + ZOOM.gap, halfW, halfH };
 }
 
 function zoomToObject(obj, opts = null) {
@@ -363,6 +372,7 @@ function zoomOut() {
   document.body.classList.remove('is-zoomed');
   zoomBack.hidden = true;
   if (news.index >= 0) endNews();
+  if (member.key) closeMember();
 }
 
 zoomBack.addEventListener('click', zoomOut);
@@ -393,6 +403,17 @@ function updateZoom(dt) {
 // ---------- クリックできる家具とパネル ----------
 
 const tooltip = document.getElementById('tooltip');
+// メンバーの楽器：紹介が登録されていない楽器は押せなくし、チップも置かない
+for (const [key, m] of room.members ?? []) {
+  const info = memberFor(key);
+  if (info) {
+    m.object.userData.hotspotLabel = info.part ? `${info.name}（${info.part}）` : info.name;
+  } else {
+    room.hotspots.delete(`member:${key}`);
+    m.object.traverse((o) => o.userData.hotspotId === `member:${key}` && delete o.userData.hotspotId);
+    m.object.traverse((o) => o.userData.setGlow && (o.visible = false));
+  }
+}
 const hotspots = createHotspots({
   camera,
   root: room.group,
@@ -400,7 +421,7 @@ const hotspots = createHotspots({
   sections: SECTIONS,
   tooltip,
   highlightColor: CONFIG.highlightColor,
-  onSelect: (id) => zoomTo(id) || requestSection(id),
+  onSelect: (id) => (id.startsWith('member:') ? openMember(id.slice(7)) : zoomTo(id) || requestSection(id)),
 });
 const panel = createPanel(SECTIONS, {
   onRequest: requestSection,
@@ -753,6 +774,86 @@ function updateRobotHover() {
   document.body.style.cursor = over ? 'pointer' : '';
 }
 
+// ---------- メンバー ----------
+// 楽器に触れると、カメラが少し寄り、楽器の前の床のチップから、そのメンバーの紹介をホログラムで映す（memberCard.js）。
+// 横長の画面では楽器の反対側に、縦長の画面では上に出す。カードの外を押すか、戻る・Esc で閉じる
+const MEMBER = {
+  margin: 1.5, // 楽器の大きさに対する余白（大きいほど引き気味）
+  minHalfH: 0.75, // 寄りすぎない（キーボードのような低い物でも、床とまわりが少し見える）
+  openAt: 0.75, // ズームがここまで進んだら映し始める
+};
+const member = { key: null, side: 'right', beam: 0, beamTo: 0 };
+const memberCard = createMemberCard({ onClose: () => zoomOut() });
+const chipPos = new THREE.Vector3();
+
+function memberFor(key) {
+  return MEMBERS.find((m) => m.instrument === key && m.name) ?? null;
+}
+
+function openMember(key) {
+  const m = room.members?.get(key);
+  if (!m || !memberFor(key)) return;
+  // ほかに開いているもの・呼んでいるものはやめる
+  if (holo.pending) {
+    holo.pending = null;
+    holo.beamTo = 0;
+    room.robot?.release({ win });
+  }
+  if (panel.isOpen) panel.close();
+  if (about.isOpen) about.close();
+  dropGoods();
+  if (news.index >= 0) endNews();
+  const target = m.shown();
+  const tall = innerWidth / innerHeight < 1;
+  const cx = new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3()).x;
+  member.side = tall ? 'top' : cx < win.cx ? 'right' : 'left';
+  member.key = key;
+  member.beamTo = 0;
+  const reserve = () => memberCard.sideWidth();
+  zoomToObject(target, {
+    margin: MEMBER.margin,
+    minHalfH: MEMBER.minHalfH,
+    floorView: true,
+    top: () => (member.side === 'top' ? innerHeight * 0.5 : 0),
+    bottom: () => (member.side === 'top' ? 110 : 90), // 戻るボタンの分
+    left: () => (member.side === 'left' ? reserve() : 0),
+    right: () => (member.side === 'right' ? reserve() : 0),
+  });
+  zoomBack.hidden = false;
+}
+
+function closeMember() {
+  member.key = null;
+  member.beamTo = 0;
+  memberCard.close();
+}
+
+function updateMember(dt, t) {
+  if (member.key && !memberCard.isOpen && zoom.amount >= MEMBER.openAt) {
+    memberCard.open(memberHtml(memberFor(member.key)), member.side);
+    member.beamTo = 1;
+  }
+  // 着く少し前から、チップの出口だけ光らせる
+  if (member.key && !memberCard.isOpen && zoom.amount > 0.4) member.beamTo = 0.5;
+  member.beam += (member.beamTo - member.beam) * (1 - Math.exp(-7 * dt));
+  if (member.beam < 0.002) member.beam = 0;
+  const flicker = 0.88 + 0.08 * Math.sin(t * 23) * Math.sin(t * 7.3) + 0.04 * Math.sin(t * 61);
+  let lit = null;
+  for (const [key, m] of room.members ?? []) {
+    const chip = m.chip();
+    const on = key === member.key || (!member.key && key === member.last);
+    chip?.userData.setGlow(on ? member.beam * flicker : 0);
+    if (on && chip && member.beam > 0) lit = chip;
+  }
+  if (member.key) member.last = member.key;
+  let at = null;
+  if (lit) {
+    const p = lit.userData.emitter.getWorldPosition(chipPos).project(camera);
+    if (p.z < 1) at = { x: ((p.x + 1) / 2) * innerWidth, y: ((1 - p.y) / 2) * innerHeight };
+  }
+  memberCard.draw(at, member.beam * flicker);
+}
+
 // ---------- ホログラム ----------
 // メニューを押すと、ロボットが今いる所から画面の中央上まで飛んできて、
 // 顔の下の投影口から光を当て、選んだページを半透明の青いパネル（ホログラム）として映す
@@ -942,6 +1043,7 @@ renderer.setAnimationLoop((now) => {
   updateRobotHover();
   updateHologram(dt, t);
   updateGoods(dt);
+  updateMember(dt, t);
   // ほかのメニューを開いている（呼んでいる・ズームしている）間は、お知らせのロボットを画面の外へはけさせる
   // （お知らせを読んでいる間は、newsProjector.read で映し続ける）
   room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen || goods.open);

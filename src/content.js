@@ -39,6 +39,30 @@ export const LATEST_NEWS = {
 // { date, title, body, image }
 export const NEWS_LIST = [{ ...LATEST_NEWS }];
 
+// メンバー（管理画面の「メンバー」で書き換える）。部屋の楽器に触れると、楽器の前のチップからホログラムで映す（memberCard.js）。
+//   instrument: どの楽器に結び付けるか（INSTRUMENTS のキー。空なら部屋には出さない）
+//   links: 1 行に 1 つ「名前 URL」（例: Instagram https://instagram.com/...）
+export const INSTRUMENTS = { gretsch: 'ギター（Gretsch・青）', hb: 'ギター（壁掛け）', bass: 'ベース（白）', keyboard: 'キーボード' };
+export const DEFAULT_MEMBERS = [
+  {
+    name: '渡辺 美月', nameEn: 'Mizuki Watanabe', part: 'Vocal & Guitar', roles: '作詞・作曲 / プロモーション',
+    bio: 'Moonfusion. An expansive singing voice and an expressive, emotion-filled delivery.', image: '', links: '', instrument: 'gretsch',
+  },
+  {
+    name: '熱田 悠馬', nameEn: 'Yuma Atsuta', part: 'Guitar & Chorus', roles: '作詞・作曲 / アートワーク / エンジニア',
+    bio: 'Responsible for intricate guitar work—blending alternative, jazz, and bossa nova—as well as visual presentation.', image: '', links: '', instrument: 'hb',
+  },
+  {
+    name: '内田 泰河', nameEn: 'Taiga Uchida', part: 'Bass', roles: '編曲 / グッズ企画・デザイン',
+    bio: 'With its distinctive melodic lines and memorable phrases, it elevates the ensemble.', image: '', links: '', instrument: 'bass',
+  },
+  {
+    name: '浅葉 瑛太', nameEn: 'Eita Asaba', part: 'Keys & Sub Vocal', roles: '作詞・作曲 / 編曲',
+    bio: 'Classical hands, electronic heart.', image: '', links: '', instrument: 'keyboard',
+  },
+];
+export const MEMBERS = DEFAULT_MEMBERS.map((m) => ({ ...m }));
+
 // ホログラムに映す一覧。押すと、2 台目のロボットが映している壁に近づいて本文を読む
 export function newsListHtml() {
   return `<ul class="news-list">${NEWS_LIST.map(
@@ -101,6 +125,10 @@ export function applyContent(data) {
     Object.assign(GOODS, { title: g.title || 'Goods', body: g.body ?? '', items });
     SECTIONS.goods.body = textToHtml(g.body ?? '') + (items.length ? `<ul class="goods-list">${items.map(goodsItem).join('')}</ul>` : '');
   }
+  if (Array.isArray(data?.members) && data.members.length) {
+    MEMBERS.length = 0;
+    for (const m of data.members) if (m?.name) MEMBERS.push({ ...m });
+  }
   const news = (data?.news ?? []).filter((n) => n.title || n.body);
   if (news.length) {
     NEWS_LIST.length = 0;
@@ -129,6 +157,27 @@ function goodsItem(it) {
   const name = escapeHtml(it.name);
   const title = it.url ? `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">${name}</a>` : name;
   return `<li class="goods-item">${img}<div class="goods-text">${status ? `<span class="goods-status ${cls}">${escapeHtml(status)}</span>` : ''}<h3>${title}</h3>${it.price ? `<p class="goods-price">${escapeHtml(it.price)}</p>` : ''}${it.note ? textToHtml(it.note) : ''}</div></li>`;
+}
+
+// メンバーのホログラムの中身
+export function memberHtml(m) {
+  const links = String(m.links ?? '')
+    .split('\n')
+    .map((line) => line.trim().match(/^(.*?)\s*(https?:\/\/\S+)$/))
+    .filter(Boolean)
+    .map(([, label, url]) => `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label || url.replace(/^https?:\/\/(www\.)?/, ''))}</a></li>`)
+    .join('');
+  return [
+    m.image ? `<img class="member-photo" src="${escapeHtml(m.image)}" alt="" />` : '',
+    '<div class="member-text">',
+    m.part ? `<p class="member-part">${escapeHtml(m.part)}</p>` : '',
+    `<h2 class="member-name" id="member-name">${escapeHtml(m.name ?? '')}</h2>`,
+    m.nameEn ? `<p class="member-name-en">${escapeHtml(m.nameEn)}</p>` : '',
+    m.roles ? `<p class="member-roles">${escapeHtml(m.roles)}</p>` : '',
+    '</div>',
+    m.bio ? `<div class="member-bio">${textToHtml(m.bio)}</div>` : '',
+    links ? `<ul class="member-links">${links}</ul>` : '',
+  ].join('');
 }
 
 // 管理画面で書くのはふつうの文章。空行で段落、改行はそのまま、URL とメールアドレスはリンクにする

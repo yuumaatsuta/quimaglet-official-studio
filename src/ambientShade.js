@@ -48,11 +48,17 @@ const f = (v) => v.toFixed(5);
 //   room: { x0, x1, z0, z1, y1 }：左右の壁・奥の壁と手前・天井の高さ（床は 0）。右は窓なので数えない
 //   block: { x0, x1, y0, y1, top }：左の壁の出っ張り（コンクリートの棚と、その上の木の棚）。
 //     x1 が出の先端、y0 がコンクリートの棚の下面、y1 が木の棚の上面、top より手前（z > top）には木の棚がない
-export function addRoomShade(material, { room: r, block: b }) {
+//   occluders: { min, max, strength }：大きな物（ソファ・タワー）の外形。uniform（{ value: 配列 }）で渡す。
+//     周りの床と壁を、物に近いほど・物の方を向いている面ほど暗くする。strength は Vector2（x: 床、y: 壁）
+export function addRoomShade(material, { room: r, block: b, occluders: o }) {
+  const n = o.min.value.length;
   return addShade(
     material,
     'roomShade',
-    `float shade(vec3 p, vec3 n) {
+    `uniform vec3 occMin[${n}];
+    uniform vec3 occMax[${n}];
+    uniform vec2 occStrength[${n}];
+    float shade(vec3 p, vec3 n) {
       if (p.x < ${f(r.x0 - 0.01)} || p.x > ${f(r.x1 + 0.01)} || p.z < ${f(r.z0 - 0.01)} || p.z > ${f(r.z1 + 0.01)}
         || p.y < -0.01 || p.y > ${f(r.y1 + 0.01)}) return 1.0;
       // 壁と床・天井の合わさる角。自分が載っている面の向きの面は数えない
@@ -72,8 +78,20 @@ export function addRoomShade(material, { room: r, block: b }) {
       if (n.y < -0.5 && p.x < ${f(b.x1 + 0.01)} && abs(p.y - ${f(b.y0)}) < 0.01) {
         s *= mix(0.35, 0.6, clamp((p.x - ${f(b.x0)}) / ${f(b.x1 - b.x0)}, 0.0, 1.0));
       }
+      // 大きな物の周り。物のいちばん近い点までの距離で、背の高い物ほど遠くまで暗くする
+      for (int i = 0; i < ${n}; i++) {
+        float k = n.y > 0.5 ? occStrength[i].x : occStrength[i].y;
+        if (k <= 0.0) continue;
+        vec3 v = clamp(p, occMin[i], occMax[i]) - p;
+        float d = length(v);
+        if (d < 0.004) continue; // 物の真下・物の中
+        float facing = clamp(dot(n, v / d) * 0.5 + 0.5, 0.0, 1.0);
+        float reach = 0.12 + 0.3 * min(occMax[i].y - occMin[i].y, 2.0);
+        s *= 1.0 - k * facing * exp(-d / reach);
+      }
       return s;
     }`,
+    { occMin: o.min, occMax: o.max, occStrength: o.strength },
   );
 }
 

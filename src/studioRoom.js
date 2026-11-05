@@ -26,7 +26,8 @@ const D = 10.0;
 const T = 0.25; // 壁・床・天井の厚み
 // 左の壁のコンクリート棚の天端。人の腰〜胸の高さにして、空間の大きさが伝わるように
 const LEDGE_Y = 1.5;
-const SHELF_HEIGHT = 0.84; // コンクリートの棚に載る、木の升目棚の高さ
+const SHELF_HEIGHT = 0.84;
+const OCCLUDERS = 4; // 周りを暗くする大きな物の数の上限（ambientShade.js） // コンクリートの棚に載る、木の升目棚の高さ
 
 // 右の窓まわり
 const PIER = 0.85; // 奥の角に残るコンクリートの柱の幅
@@ -75,6 +76,12 @@ export async function buildStudioRoom(onProgress, contentReady) {
   const roomShape = {
     room: { x0: -W / 2, x1: W / 2, z0: -D, z1: 0, y1: H },
     block: { x0: -W / 2, x1: -W / 2 + 0.32, y0: LEDGE_Y - 0.12, y1: LEDGE_Y + SHELF_HEIGHT, top: -0.3 },
+    // 大きな物の外形（家具とタワーを置いてから入れる。使わない枠は強さ 0）
+    occluders: {
+      min: { value: Array.from({ length: OCCLUDERS }, () => new THREE.Vector3()) },
+      max: { value: Array.from({ length: OCCLUDERS }, () => new THREE.Vector3()) },
+      strength: { value: Array.from({ length: OCCLUDERS }, () => new THREE.Vector2()) }, // x: 床、y: 壁
+    },
   };
   addRoomShade(concrete, roomShape);
   addRoomShade(floorMat, roomShape);
@@ -141,8 +148,15 @@ export async function buildStudioRoom(onProgress, contentReady) {
   // クリックできる家具。focus のものは、押すとそこへズームする（main.js）
   const hotspots = new Map();
   const focus = new Map();
+  const members = new Map(); // 楽器のキー → { object: 押せる物, shown(): 見えている置き方, chip(): チップ }
   for (const item of furniture) {
     group.add(item);
+    const key = item.userData.member;
+    if (key) {
+      tagHotspot(hotspots, `member:${key}`, item);
+      const shown = () => item.userData.shown?.() ?? item;
+      members.set(key, { object: item, shown, chip: () => shown().userData.chip });
+    }
     const f = item.userData.focus;
     if (!f) continue;
     item.userData.hotspotLabel = f.label;
@@ -189,6 +203,23 @@ export async function buildStudioRoom(onProgress, contentReady) {
     target: towerTarget, rand: towerRand, armMaterial: steel,
   });
   group.add(rightTower, leftTower);
+  // 大きな物（ソファ・タワー）の周りの床と壁の暗がり
+  const occ = [
+    ...FURNITURE.flatMap((it, i) => (it.occluder ? [[furniture[i], it.occluder]] : [])),
+    // タワーが壁に落とす影は wallShadow が形に沿って描くので、壁は薄く
+    [leftTower, [0.55, 0.25]],
+    [rightTower, [0.55, 0.25]],
+  ];
+  occ.forEach(([obj, k], i) => {
+    if (i >= OCCLUDERS) return;
+    obj.updateMatrixWorld(true);
+    // 床の影など、飾りの板は測らない
+    const b = new THREE.Box3();
+    obj.traverse((o) => o.isMesh && !o.userData.noPick && b.expandByObject(o, true));
+    roomShape.occluders.min.value[i].copy(b.min);
+    roomShape.occluders.max.value[i].copy(b.max);
+    roomShape.occluders.strength.value[i].set(...(Array.isArray(k) ? k : [k, k]));
+  });
   // タワーが奥の壁と左の壁に落とす影（ブラウン管とアームの形に沿って）
   group.add(
     wallShadow(leftTower, { wall: 'z', at: -D, light: WALL_LIGHT.back }),
@@ -300,6 +331,8 @@ export async function buildStudioRoom(onProgress, contentReady) {
     robot: furniture.find((f) => f.userData.robot)?.userData.robot ?? null,
     // お知らせを映す 2 台目のロボット（newsProjector.js）
     newsProjector,
+    // メンバーの楽器とチップ（main.js が紹介のホログラムを映す）
+    members,
     // 夜の月と星空の投影（planetarium.js）
     planetarium,
     hasLights: true,
@@ -309,6 +342,7 @@ export async function buildStudioRoom(onProgress, contentReady) {
       shutter.update(t);
       updateCrtScreens(t);
       for (const item of furniture) item.userData.update?.(t, view);
+      for (const m of members.values()) m.chip()?.userData.update(t);
       floorLogo.userData.update(t, view);
       wallMenu.group.userData.update(t, view);
       newsProjector.group.userData.update(t, view);
@@ -811,9 +845,12 @@ function applyWorldUV(geo, offset, fn) {
 //   wall: { y } 床に置かず壁に掛ける（下端の高さ y。ネックの上の方に壁のハンガーを付ける）
 //   mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（src/floorMirror.js）
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
+//   member: メンバーの楽器（content.js の INSTRUMENTS のキー）。触れると、chip { x, z } に置いた
+//     床のチップから、そのメンバーの紹介をホログラムで映す（main.js・memberCard.js）
+//   occluder: 周りの床と壁を暗くする強さ（ambientShade.js。大きな物の足元の暗がり）。[床, 壁] でも書ける
 const FURNITURE = [
   // 部屋の中央・奥寄り（奥の壁から 1.6m）。モデルの正面は -z 向きなので 180° 回す
-  { url: 'models/sofa.glb', x: 0, z: -D + 1.6, rotationY: Math.PI, width: 2.1, fabric: '#6e6a65' },
+  { url: 'models/sofa.glb', x: 0, z: -D + 1.6, rotationY: Math.PI, width: 2.1, fabric: '#6e6a65', occluder: [0.6, 0.45] },
   // 部屋の中央、ソファの手前の床に置いたブラウン管（blown TV 03）。画面をこちらへ向ける
   {
     url: 'models/crt.glb', x: 0, z: -D + 4.0, rotationY: 0, width: 0.42,
@@ -829,12 +866,16 @@ const FURNITURE = [
   },
   // 右奥のブラウン管のタワーの前の床に置いたキーボード（Roland FANTOM の生成モデル）。
   // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
-  { url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true },
+  {
+    url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true,
+    member: 'keyboard', chip: { x: 1.42, z: -6.7 },
+  },
   // 左奥のブラウン管のタワーに立てかけたギター（Gretsch の生成モデル。ピックガードのでっぱりは平らにしてある）。
   // 正面（+z）を部屋の手前へ向け、後ろへ傾けて、いちばん下の段のブラウン管にもたせかける
   {
     url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
+    member: 'gretsch', chip: { x: -1.2, z: -7.72 },
     // 生成モデルの金属っぽさが強く、ボディがぎらつくので抑える
     tone: { metalness: 0, envMapIntensity: 0.15, minRoughness: 0.7 },
   },
@@ -842,7 +883,11 @@ const FURNITURE = [
   // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
   {
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
-    narrow: { x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 } },
+    member: 'hb', chip: { x: -2.75, z: -7.2 },
+    narrow: {
+      x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 },
+      chip: { x: -2.2, z: -7.25 },
+    },
   },
   // HB の前の床に置いたエフェクターボード（生成モデル）。踏む側（モデルの +z）を部屋の内側へ向け、斜めに置く。
   // モデルは奥の脚が長いので、手前へ 11° 傾けて、手前の辺と奥の脚の両方を床に付ける。
@@ -863,6 +908,7 @@ const FURNITURE = [
   {
     url: 'models/bass-white.glb', x: 1.7, z: -8.36, rotationY: -0.75, rotationX: -0.33, rotationZ: 0.05, width: 0.415,
     mirror: { height: 0.3, strength: 0.3 },
+    member: 'bass', chip: { x: 1.25, z: -7.85 },
   },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
@@ -914,6 +960,9 @@ async function loadFurniture(manager) {
       const both = new THREE.Group();
       both.add(wide, tall);
       both.userData.box = wide.userData.box;
+      both.userData.member = item.member;
+      // いま見えている方の置き方（ズームや光の出どころに使う）
+      both.userData.shown = () => (wide.visible ? wide : tall);
       const fit = () => {
         const isTall = innerWidth / innerHeight < NARROW_ASPECT;
         wide.visible = !isTall;
@@ -977,10 +1026,55 @@ function place(model, item) {
     group.add(contactShadow(box, item.x + center.x, item.z + center.z));
   }
   if (item.focus) group.userData.focus = item.focus;
+  if (item.member && item.chip) {
+    const chip = memberChip();
+    chip.position.set(item.chip.x, 0, item.chip.z);
+    // チップの光の出る向き（楽器の方を少し向く）
+    chip.rotation.y = Math.atan2(item.x - item.chip.x, item.z - item.chip.z);
+    group.add(chip);
+    group.userData.member = item.member;
+    group.userData.chip = chip;
+  }
   // 置いた後の位置で測り直す（box は動かす前の座標）。on で上に載せるときに使う
   model.updateMatrixWorld(true);
   group.userData.box = modelBox(model);
   return group;
+}
+
+// メンバーの紹介を映すチップ。床に置いた黒い円盤で、上面の輪とレンズが青く光る。
+// 触れていない間はゆっくり明滅して、押せることを知らせる。setGlow(0〜1) で映している間の明るさ
+function memberChip() {
+  const chip = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.052, 0.06, 0.018, 40),
+    new THREE.MeshStandardMaterial({ color: '#16181c', metalness: 0.7, roughness: 0.35 }),
+  );
+  body.position.y = 0.009;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  const glowMat = (opacity) =>
+    new THREE.MeshBasicMaterial({ color: '#7cc4ff', transparent: true, opacity, toneMapped: false, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.036, 0.044, 48), glowMat(0.5));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.0185;
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.014, 32), glowMat(0.7));
+  lens.rotation.x = -Math.PI / 2;
+  lens.position.y = 0.019;
+  // ホバーの発光は本体だけ（輪とレンズは自分で光らせる）
+  ring.userData.noHighlight = lens.userData.noHighlight = true;
+  const emitter = new THREE.Object3D();
+  emitter.position.y = 0.022;
+  chip.add(body, ring, lens, emitter);
+  let glow = 0;
+  chip.userData.emitter = emitter;
+  chip.userData.setGlow = (a) => (glow = a);
+  chip.userData.update = (t) => {
+    const idle = 0.35 + 0.2 * (0.5 + 0.5 * Math.sin(t * 2.2));
+    ring.material.opacity = Math.min(1, idle + glow * 0.65);
+    lens.material.opacity = Math.min(1, 0.5 + glow * 0.5);
+    lens.material.color.setRGB(0.49 + glow * 0.4, 0.77 + glow * 0.2, 1);
+  };
+  return chip;
 }
 
 // 壁のギターハンガー：黒い小さな台座と、ネックを両側から受ける 2 本の腕（左の壁、x = -W / 2 に付ける）。

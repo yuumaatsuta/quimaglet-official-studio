@@ -240,6 +240,7 @@
           <button type="button" data-tab="about" aria-selected="false">About</button>
           <button type="button" data-tab="works" aria-selected="false">Works</button>
           <button type="button" data-tab="goods" aria-selected="false">Goods</button>
+          <button type="button" data-tab="members" aria-selected="false">メンバー</button>
           <button type="button" data-tab="contact" aria-selected="false">Contact</button>
           <button type="button" data-tab="site" aria-selected="false">サイト設定</button>
           <button type="button" data-tab="history" aria-selected="false">履歴</button>
@@ -283,6 +284,13 @@
           <textarea id="goods-body"></textarea>
           <div id="goods-list"></div>
           <button type="button" id="goods-add">＋ グッズを追加（いちばん下に）</button>
+        </section>
+
+        <section data-panel="members" hidden>
+          <h2>メンバー</h2>
+          <p class="note">部屋の楽器に触れると、カメラが少し寄って、楽器の前の床に置いたチップからこの内容がホログラムで映ります。「楽器」で、どの楽器に触れたときに出すかを選びます（同じ楽器を 2 人に選ぶと、上の人が出ます）。</p>
+          <div id="members-list"></div>
+          <button type="button" id="members-add">＋ メンバーを追加（いちばん下に）</button>
         </section>
 
         <section data-panel="contact" hidden>
@@ -400,6 +408,53 @@
         </div>
       </div>
     </template>
+    <template id="members-template">
+      <div class="news-item member-item">
+        <div class="row">
+          <div>
+            <label>名前</label>
+            <input data-field="name" placeholder="渡辺 美月" />
+          </div>
+          <div>
+            <label>名前（ローマ字）</label>
+            <input data-field="nameEn" placeholder="Mizuki Watanabe" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>パート</label>
+            <input data-field="part" placeholder="Vocal & Guitar" />
+          </div>
+          <div style="flex: 0 0 14em">
+            <label>楽器（部屋のどれに触れたら出すか）</label>
+            <select data-field="instrument">
+              <option value="gretsch">ギター（Gretsch・青）</option>
+              <option value="hb">ギター（壁掛け）</option>
+              <option value="bass">ベース（白）</option>
+              <option value="keyboard">キーボード</option>
+              <option value="">部屋には出さない</option>
+            </select>
+          </div>
+        </div>
+        <label>担当（作詞・作曲 / アートワーク など）</label>
+        <input data-field="roles" />
+        <label>紹介文（空行で段落）</label>
+        <textarea data-field="bio"></textarea>
+        <label>写真（「画像を選ぶ」でアップロード。URL を直接書いてもよい。空でもよい）</label>
+        <div class="img-field">
+          <span class="thumb"></span>
+          <input data-field="image" placeholder="https://..." />
+          <button type="button" data-act="upload">画像を選ぶ</button>
+        </div>
+        <label>リンク（1 行に 1 つ「名前 URL」。例：Instagram https://www.instagram.com/...）</label>
+        <textarea data-field="links" placeholder="Instagram https://..."></textarea>
+        <div class="tools">
+          <button type="button" data-act="up">↑</button>
+          <button type="button" data-act="down">↓</button>
+          <button type="button" data-act="remove" class="danger">削除</button>
+        </div>
+      </div>
+    </template>
     <datalist id="goods-status">
       <option value="販売中"></option>
       <option value="予約受付中"></option>
@@ -481,6 +536,8 @@
         $('goods-title').value = p.goods?.title ?? 'Goods';
         $('goods-body').value = p.goods?.body ?? '';
         renderList('goods', p.goods?.items ?? []);
+        // まだ保存したことがなければ、サイトの初期の中身（About のメンバー紹介）から始める
+        renderList('members', doc.members?.length ? doc.members : DEFAULT_MEMBERS);
         $('site-favicon').value = doc.site?.favicon ?? '';
         $('site-og').value = doc.site?.ogImage ?? '';
         for (const box of document.querySelectorAll('.site-img')) refresh(box);
@@ -519,7 +576,7 @@
         node.classList.toggle('is-draft', draft);
       }
 
-      for (const id of ['news', 'goods']) {
+      for (const id of ['news', 'goods', 'members']) {
         $(`${id}-list`).addEventListener('input', (e) => refresh(e.target.closest('.news-item')));
         $(`${id}-list`).addEventListener('change', (e) => refresh(e.target.closest('.news-item')));
         $(`${id}-list`).addEventListener('click', (e) => {
@@ -527,7 +584,7 @@
           if (!act) return;
           const node = e.target.closest('.news-item');
           dirty = true;
-          if (act === 'remove' && confirm(id === 'news' ? 'このお知らせを削除しますか？' : 'このグッズを削除しますか？')) node.remove();
+          if (act === 'remove' && confirm({ news: 'このお知らせを削除しますか？', goods: 'このグッズを削除しますか？', members: 'このメンバーを削除しますか？' }[id])) node.remove();
           if (act === 'up' && node.previousElementSibling) node.previousElementSibling.before(node);
           if (act === 'down' && node.nextElementSibling) node.nextElementSibling.after(node);
           if (act === 'upload') pickImage(node);
@@ -545,6 +602,19 @@
         $('goods-list').lastElementChild.querySelector('[data-field="name"]').focus();
         dirty = true;
       });
+
+      $('members-add').addEventListener('click', () => {
+        renderList('members', [...readList('members'), { name: '', nameEn: '', part: '', roles: '', bio: '', image: '', links: '', instrument: '' }]);
+        $('members-list').lastElementChild.querySelector('[data-field="name"]').focus();
+        dirty = true;
+      });
+      // サイトの src/content.js の DEFAULT_MEMBERS と同じ
+      const DEFAULT_MEMBERS = [
+        { name: '渡辺 美月', nameEn: 'Mizuki Watanabe', part: 'Vocal & Guitar', roles: '作詞・作曲 / プロモーション', bio: 'Moonfusion. An expansive singing voice and an expressive, emotion-filled delivery.', image: '', links: '', instrument: 'gretsch' },
+        { name: '熱田 悠馬', nameEn: 'Yuma Atsuta', part: 'Guitar & Chorus', roles: '作詞・作曲 / アートワーク / エンジニア', bio: 'Responsible for intricate guitar work—blending alternative, jazz, and bossa nova—as well as visual presentation.', image: '', links: '', instrument: 'hb' },
+        { name: '内田 泰河', nameEn: 'Taiga Uchida', part: 'Bass', roles: '編曲 / グッズ企画・デザイン', bio: 'With its distinctive melodic lines and memorable phrases, it elevates the ensemble.', image: '', links: '', instrument: 'bass' },
+        { name: '浅葉 瑛太', nameEn: 'Eita Asaba', part: 'Keys & Sub Vocal', roles: '作詞・作曲 / 編曲', bio: 'Classical hands, electronic heart.', image: '', links: '', instrument: 'keyboard' },
+      ];
 
       // ---------- 画像 ----------
       // 選んだ画像を、長い辺 1600px までの WebP に縮めてから送る
@@ -680,6 +750,7 @@
             },
             contact: { title: $('contact-title').value.trim() || 'Contact', body: $('contact-body').value.trim() },
           },
+          members: readList('members').filter((m) => m.name),
           news: readList('news')
             .filter((n) => n.title || n.body)
             .map((n) => ({ ...n, publishAt: fromLocalInput(n.publishAt) })),

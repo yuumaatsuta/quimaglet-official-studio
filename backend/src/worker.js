@@ -86,7 +86,7 @@ export function publicView(doc, now = Date.now()) {
   const news = (doc.news ?? [])
     .filter((n) => n.status !== 'draft' && (!n.publishAt || Date.parse(n.publishAt) <= now))
     .map(({ date = '', title = '', body = '', image = '' }) => ({ date, title, body, image }));
-  return { pages: doc.pages ?? {}, news };
+  return { pages: doc.pages ?? {}, news, members: doc.members ?? [] };
 }
 
 // ---------- 管理画面 ----------
@@ -221,6 +221,17 @@ export function cleanDoc(doc) {
       },
       contact: page(p.contact),
     },
+    // メンバー。部屋の楽器（instrument）に触れると、その前のチップからホログラムで映す
+    members: (Array.isArray(doc.members) ? doc.members : []).slice(0, 20).map((m) => ({
+      name: s(m?.name, 100),
+      nameEn: s(m?.nameEn, 100),
+      part: s(m?.part, 100),
+      roles: s(m?.roles, 300),
+      bio: s(m?.bio, 6000),
+      image: url(m?.image),
+      links: s(m?.links, 2000),
+      instrument: ['gretsch', 'hb', 'bass', 'keyboard'].includes(m?.instrument) ? m.instrument : '',
+    })),
     news: news.map((n) => ({
       id: /^[\w-]{1,64}$/.test(n?.id ?? '') ? n.id : crypto.randomUUID(),
       date: s(n?.date, 40),
