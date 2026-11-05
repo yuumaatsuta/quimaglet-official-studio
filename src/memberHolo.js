@@ -70,6 +70,19 @@ export function createMemberHolo(scene) {
     layers.push(mesh);
     group.add(mesh);
   }
+  // 文字の後ろの暗い影（後ろの壁の落書きやブラウン管に重なっても読めるように）。いちばん奥に、ふつうの重ね方で描く
+  const shadowCanvas = document.createElement('canvas');
+  shadowCanvas.width = CANVAS.w;
+  shadowCanvas.height = CANVAS.h;
+  const shadowCtx = shadowCanvas.getContext('2d');
+  const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+  const shadow = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({ color: '#020611', map: shadowTexture, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
+  );
+  shadow.renderOrder = 20 - LAYERS; // 文字の板（20 - i）より先に描く
+  shadow.userData.noPick = true;
+  group.add(shadow);
   scene.add(group);
 
   // 名前（大きく）と、ローマ字（小さく、字間を空けて）を描く。板の横幅を文字に合わせる
@@ -104,6 +117,29 @@ export function createMemberHolo(scene) {
     }
     ctx.shadowBlur = 0;
     texture.needsUpdate = true;
+
+    // 影：文字を太らせて（縁取り）、大きくぼかす
+    const sc = shadowCtx;
+    sc.clearRect(0, 0, CANVAS.w, CANVAS.h);
+    sc.filter = 'blur(12px)';
+    sc.textAlign = 'center';
+    sc.textBaseline = 'alphabetic';
+    sc.fillStyle = sc.strokeStyle = '#fff';
+    sc.lineJoin = 'round';
+    sc.font = `700 ${size}px ${font}`;
+    sc.lineWidth = 36;
+    sc.strokeText(name, CANVAS.w / 2, nameY);
+    sc.fillText(name, CANVAS.w / 2, nameY);
+    if (nameEn) {
+      sc.font = `500 46px ${font}`;
+      sc.letterSpacing = '14px';
+      sc.lineWidth = 30;
+      sc.strokeText(nameEn.toUpperCase(), CANVAS.w / 2, 256);
+      sc.fillText(nameEn.toUpperCase(), CANVAS.w / 2, 256);
+      sc.letterSpacing = '0px';
+    }
+    sc.filter = 'none';
+    shadowTexture.needsUpdate = true;
   }
 
   const base = new THREE.Vector3();
@@ -124,6 +160,9 @@ export function createMemberHolo(scene) {
       group.position.set(base.x, base.y - (1 - a) * 0.18, base.z);
       group.rotation.y = 0.1 + 0.025 * Math.sin(t * 0.35);
       const width = HEIGHT * (CANVAS.w / CANVAS.h);
+      shadow.scale.set(width * (0.6 + 0.4 * a), HEIGHT, 1);
+      shadow.position.set(0, 0, -DEPTH - 0.01);
+      shadow.material.opacity = 0.88 * a;
       for (const mesh of layers) {
         const back = mesh.userData.back;
         mesh.scale.set(width * (0.6 + 0.4 * a), HEIGHT, 1);

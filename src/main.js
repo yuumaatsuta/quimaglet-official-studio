@@ -216,7 +216,9 @@ await precompile();
 clearInterval(creep);
 bootLabel.textContent = 'LOADING... 100%';
 performance.mark('q:compiled');
-setShutter(shutterOpen, false);
+// 先読みで開けたシャッターを、起動時の開き具合（閉めた状態）に戻す。
+// shutterOpen は setShutter(1) で書き換わっているので、動かしている値（shutterProgress）から戻す
+setShutter(shutterProgress, false);
 captureEnvironment();
 performance.mark('q:env');
 
