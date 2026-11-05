@@ -6,6 +6,7 @@ import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { floorMirror, footprintShadow } from './floorMirror.js';
 import { mergeStatic } from './mergeStatic.js';
+import { addShelfShade } from './shelfShade.js';
 import { wallShadow } from './wallShadow.js';
 import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
@@ -371,10 +372,14 @@ function buildCubbyShelf({ box, textures }) {
     normalMap: textures.shelfNormal,
     normalScale: new THREE.Vector2(0.6, 0.6),
     roughnessMap: textures.shelfRough,
-    roughness: 1,
+    roughness: 0.8,
+    // 薄く塗装した木。窓の光と部屋がうっすら映る
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.3,
+    envMapIntensity: 0.8,
   };
-  const wood = new THREE.MeshStandardMaterial({ ...woodProps });
-  const inner = new THREE.MeshStandardMaterial({ ...woodProps, color: '#efe2d2' });
+  const wood = new THREE.MeshPhysicalMaterial({ ...woodProps });
+  const inner = new THREE.MeshPhysicalMaterial({ ...woodProps, color: '#efe2d2' });
   const rand = mulberry32(13);
 
   // 板ごとに、長い方向へ木目が流れるよう UV を張る（テクスチャは 2.4m × 1.2m）。
@@ -416,6 +421,14 @@ function buildCubbyShelf({ box, textures }) {
     board(depth, height, t, wood, xc, y0 + height / 2, z);
   }
 
+  // 升目の奥と隅の暗がり（shelfShade.js）
+  const shade = {
+    front: x0 + depth, back: x0 + 0.012, y0, y1: y0 + height, rowPitch: (height - t) / rows,
+    z0, z1, colPitch: (len - t) / cols, t,
+  };
+  addShelfShade(wood, shade);
+  addShelfShade(inner, shade);
+
   // 升目の中身（本）。升目の内側の範囲を渡す
   const cells = [];
   for (let r = 0; r < rows; r++) {
@@ -427,12 +440,12 @@ function buildCubbyShelf({ box, textures }) {
       cells.push({ yb, yt, za, zb });
     }
   }
-  return shelfBooks(cells, { front: x0 + depth, back: x0 + 0.012 });
+  return shelfBooks(cells, { front: x0 + depth, back: x0 + 0.012, shade });
 }
 
-// 升目に入れた本。7 割ほどの升目に、立てて並べた本・寄りかかった本・平積みの本を入れる。
+// 升目に入れた本。半分ほどの升目に、立てて並べた本・寄りかかった本・平積みの本を入れる。
 // 背表紙は部屋（+x）へ向ける。文字は描かない（遠目には崩れて見えるため）。色は落ち着いた布・紙の色
-function shelfBooks(cells, { front, back }) {
+function shelfBooks(cells, { front, back, shade }) {
   const rand = mulberry32(29);
   const r = (a, b) => a + rand() * (b - a);
   const COLORS = [
@@ -448,11 +461,11 @@ function shelfBooks(cells, { front, back }) {
     const mode = rand();
     const ch = cell.yt - cell.yb;
     const cw = cell.zb - cell.za;
-    if (mode < 0.25) continue; // 空の升目
-    if (mode < 0.86) {
+    if (mode < 0.5) continue; // 空の升目
+    if (mode < 0.9) {
       // 立てて並べる。左右どちらかから詰め、最後の 1 冊を寄りかからせることもある
       const fromLeft = rand() < 0.5;
-      const fill = mode < 0.66 ? r(0.9, 0.98) : r(0.45, 0.75);
+      const fill = mode < 0.7 ? r(0.85, 0.98) : r(0.4, 0.7);
       let used = 0;
       const series = rand() < 0.35 ? { h: ch * r(0.72, 0.92), d: r(0.15, 0.21), color: color() } : null; // 揃いの本
       const row = [];
@@ -498,7 +511,7 @@ function shelfBooks(cells, { front, back }) {
   }
 
   const geo = new THREE.BoxGeometry(1, 1, 1);
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0 });
+  const mat = addShelfShade(new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0 }), shade);
   const mesh = new THREE.InstancedMesh(geo, mat, books.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
