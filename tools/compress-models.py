@@ -5,8 +5,8 @@
 #
 # model:   頂点を Draco で圧縮し、中の画像を WebP（品質 90）にする。材質・階層は変えない。
 #          サイトは src/gltf.js の DRACOLoader で展開する。
-#          三角形の数を渡すと、その数まで減らす（遠くに小さく見える物向け。
-#          ブラウン管のタワーの crt01・crt03 は 6000、crt02 は 8000）
+#          三角形の数を渡すと、その数まで減らす（形やテクスチャがよれるので、なるべく使わない。
+#          ブラウン管のタワーは減らさずに圧縮だけしている）
 # texture: 色・ラフネスは WebP（品質 90）、ノーマルマップ（名前に normal）は可逆の WebP
 #          （ノーマルマップを非可逆にすると、凹凸の陰影がずれる）。
 import bpy, sys
@@ -29,8 +29,8 @@ if mode == 'model':
         export_draco_mesh_compression_enable=True,
         export_draco_mesh_compression_level=10,
         export_draco_position_quantization=14,
-        export_draco_normal_quantization=10,
-        export_draco_texcoord_quantization=12,
+        export_draco_normal_quantization=12,
+        export_draco_texcoord_quantization=14,
         export_image_format='WEBP',
         export_image_quality=90,
         export_yup=True,

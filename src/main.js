@@ -8,6 +8,7 @@ import { createGoodsPaper } from './goodsPaper.js';
 import { createHotspots, isPickable, isShown } from './hotspots.js';
 import { createInput, isTouchDevice } from './input.js';
 import { createMemberCard } from './memberCard.js';
+import { createMemberHolo } from './memberHolo.js';
 import { createPanel } from './panel.js';
 import { loadRoom } from './room.js';
 import { KINDS, LOCATION, fetchCurrentWeather, weatherParams } from './weather.js';
@@ -317,10 +318,10 @@ const shownWin = { cx: 0, cy: 0, cz: 0, halfW: 1, halfH: 1 };
 const robotEye = new THREE.Vector3();
 const zoomBack = document.getElementById('zoom-back');
 
-// opts.margin：余白。opts.top / opts.bottom()：画面の上下で空けておく画素（ロゴやボタンの分）。
-// opts.left / opts.right()：左右で空けておく画素（横に出すホログラムの分）。opts.minHalfH：映す範囲の高さの半分の最小（m）。
+// opts.window()：窓をじかに決める（メンバーのホログラム。main.js の memberWindow）。opts.margin：余白。opts.top / opts.bottom()：画面の上下で空けておく画素（ロゴやボタンの分）。
 // 物の大きさは、床の影など押せない飾りを含めずに測る（物そのものが押せない飾りのとき＝壁の投影は、それを測る）
 function focusWindow(obj, opts = {}) {
+  if (opts.window) return opts.window();
   const box = new THREE.Box3();
   obj.traverse((o) => o.isMesh && (o === obj || !o.userData.noPick) && box.expandByObject(o, true));
   const c = box.getCenter(new THREE.Vector3());
@@ -328,25 +329,18 @@ function focusWindow(obj, opts = {}) {
   const margin = opts.margin ?? ZOOM.margin;
   const top = opts.top?.() ?? 0;
   const bottom = opts.bottom?.() ?? 0;
-  const left = opts.left?.() ?? 0;
-  const right = opts.right?.() ?? 0;
   const usable = Math.max(0.3, (innerHeight - top - bottom) / innerHeight);
-  const usableW = Math.max(0.3, (innerWidth - left - right) / innerWidth);
   const aspect = innerWidth / innerHeight;
-  let halfH = Math.max(((size.y / 2) * margin) / usable, opts.minHalfH ?? 0);
+  let halfH = ((size.y / 2) * margin) / usable;
   let halfW = halfH * aspect;
-  const minHalfW = ((size.x / 2) * margin) / usableW;
+  const minHalfW = (size.x / 2) * margin;
   if (halfW < minHalfW) {
     halfW = minHalfW;
     halfH = halfW / aspect;
   }
   // 空けておく上下の画素の分だけ、物を空いている所の中央へずらす
   const perPx = (2 * halfH) / innerHeight;
-  const cx = c.x + ((right - left) / 2) * perPx;
-  // opts.floorView：床に置いた物。床を、空けておく下の画素のすぐ上に合わせる
-  // （低い物でも床に目を付けず、床のチップも画面に入る。上の空きにはホログラムを出す）
-  if (opts.floorView) return { cx, cy: halfH - bottom * perPx - 0.05, cz: box.max.z + ZOOM.gap, halfW, halfH };
-  return { cx, cy: c.y + ((top - bottom) / 2) * perPx, cz: box.max.z + ZOOM.gap, halfW, halfH };
+  return { cx: c.x, cy: c.y + ((top - bottom) / 2) * perPx, cz: box.max.z + ZOOM.gap, halfW, halfH };
 }
 
 function zoomToObject(obj, opts = null) {
@@ -775,24 +769,46 @@ function updateRobotHover() {
 }
 
 // ---------- メンバー ----------
-// 楽器に触れると、カメラが少し寄り、楽器の前の床のチップから、そのメンバーの紹介をホログラムで映す（memberCard.js）。
-// 横長の画面では楽器の反対側に、縦長の画面では上に出す。カードの外を押すか、戻る・Esc で閉じる
+// 楽器に触れると、カメラが楽器の前の床のチップへ寄り、チップの真上にそのメンバーの紹介をホログラムで映す。
+// 名前は立体の光の文字（memberHolo.js）、ほかは名前の下の表示板（memberCard.js）。
+// 表示板は楽器に少しかぶり、左右の奥に楽器が見える。表示板の外を押すか、戻る・Esc で閉じる
+//   layout（m、チップからの高さ・幅）: width 表示板の幅、top/bottom 表示板の上端・下端、name 名前の中心、
+//   view 寄ったときに映す範囲（w 幅、top 床からの高さ）
 const MEMBER = {
-  margin: 1.5, // 楽器の大きさに対する余白（大きいほど引き気味）
-  minHalfH: 0.75, // 寄りすぎない（キーボードのような低い物でも、床とまわりが少し見える）
   openAt: 0.75, // ズームがここまで進んだら映し始める
+  front: 0.15, // 窓（画面）をチップのどれだけ手前に置くか
+  backButton: 96, // 下で空けておく画素（戻るボタンの分）
+  wide: { width: 0.85, top: 1.27, bottom: 0.42, name: 1.47, view: { w: 2.9, top: 1.72 } },
+  tall: { width: 1.0, top: 1.48, bottom: 0.4, name: 1.7, view: { w: 1.3, top: 1.95 } },
 };
-const member = { key: null, side: 'right', beam: 0, beamTo: 0 };
+const member = { key: null, beam: 0, beamTo: 0 };
 const memberCard = createMemberCard({ onClose: () => zoomOut() });
+const memberHolo = createMemberHolo(scene);
 const chipPos = new THREE.Vector3();
+const memberAt = new THREE.Vector3();
+const memberP = new THREE.Vector3();
 
 function memberFor(key) {
   return MEMBERS.find((m) => m.instrument === key && m.name) ?? null;
 }
+const memberLayout = () => (innerWidth / innerHeight < 1 ? MEMBER.tall : MEMBER.wide);
+
+// チップの真上のホログラムが、戻るボタンの上の空きの真ん中に来る窓
+function memberWindow(chip) {
+  const L = memberLayout();
+  const aspect = innerWidth / innerHeight;
+  const usable = Math.max(0.4, (innerHeight - MEMBER.backButton) / innerHeight);
+  const low = -0.06; // チップの下に少し床を見せる
+  const halfH = Math.max((L.view.top - low) / 2 / usable, L.view.w / 2 / aspect);
+  const b = (MEMBER.backButton * 2 * halfH) / innerHeight;
+  return { cx: chip.x, cy: (L.view.top + low) / 2 - b / 2, cz: chip.z + MEMBER.front, halfW: halfH * aspect, halfH };
+}
 
 function openMember(key) {
   const m = room.members?.get(key);
-  if (!m || !memberFor(key)) return;
+  const info = memberFor(key);
+  const chip = m?.chip();
+  if (!chip || !info) return;
   // ほかに開いているもの・呼んでいるものはやめる
   if (holo.pending) {
     holo.pending = null;
@@ -803,22 +819,11 @@ function openMember(key) {
   if (about.isOpen) about.close();
   dropGoods();
   if (news.index >= 0) endNews();
-  const target = m.shown();
-  const tall = innerWidth / innerHeight < 1;
-  const cx = new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3()).x;
-  member.side = tall ? 'top' : cx < win.cx ? 'right' : 'left';
   member.key = key;
   member.beamTo = 0;
-  const reserve = () => memberCard.sideWidth();
-  zoomToObject(target, {
-    margin: MEMBER.margin,
-    minHalfH: MEMBER.minHalfH,
-    floorView: true,
-    top: () => (member.side === 'top' ? innerHeight * 0.5 : 0),
-    bottom: () => (member.side === 'top' ? 110 : 90), // 戻るボタンの分
-    left: () => (member.side === 'left' ? reserve() : 0),
-    right: () => (member.side === 'right' ? reserve() : 0),
-  });
+  memberHolo.set(info);
+  // 縦横が変わったら（スマホを回したら）置き方の変わったチップへ寄り直す
+  zoomToObject(m.shown(), { window: () => memberWindow(m.chip().getWorldPosition(chipPos)) });
   zoomBack.hidden = false;
 }
 
@@ -828,9 +833,15 @@ function closeMember() {
   memberCard.close();
 }
 
+// 部屋の中の点を画面の画素へ
+function toScreen(v) {
+  v.project(camera);
+  return { x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight, front: v.z < 1 };
+}
+
 function updateMember(dt, t) {
   if (member.key && !memberCard.isOpen && zoom.amount >= MEMBER.openAt) {
-    memberCard.open(memberHtml(memberFor(member.key)), member.side);
+    memberCard.open(memberHtml(memberFor(member.key)));
     member.beamTo = 1;
   }
   // 着く少し前から、チップの出口だけ光らせる
@@ -846,10 +857,24 @@ function updateMember(dt, t) {
     if (on && chip && member.beam > 0) lit = chip;
   }
   if (member.key) member.last = member.key;
+
   let at = null;
   if (lit) {
-    const p = lit.userData.emitter.getWorldPosition(chipPos).project(camera);
-    if (p.z < 1) at = { x: ((p.x + 1) / 2) * innerWidth, y: ((1 - p.y) / 2) * innerHeight };
+    const L = memberLayout();
+    const c = lit.getWorldPosition(chipPos);
+    // 名前の立体の文字（表示板が映ってから浮かび上がる）
+    const nameA = memberCard.isOpen || !member.key ? Math.max(0, (member.beam - 0.5) * 2) : 0;
+    memberHolo.update(memberAt.set(c.x, L.name, c.z), nameA * flicker, t);
+    // 表示板：チップの真上の、部屋の中の板の四隅を画面に写す
+    const tl = toScreen(memberP.set(c.x - L.width / 2, L.top, c.z));
+    const br = toScreen(memberP.set(c.x + L.width / 2, L.bottom, c.z));
+    const width = Math.min(br.x - tl.x, innerWidth - 24);
+    const left = Math.min(Math.max((tl.x + br.x) / 2 - width / 2, 12), innerWidth - 12 - width);
+    memberCard.place({ left, top: tl.y, width, height: Math.max(120, br.y - tl.y) });
+    const e = toScreen(lit.userData.emitter.getWorldPosition(memberP));
+    if (e.front) at = e;
+  } else {
+    memberHolo.update(null, 0, t);
   }
   memberCard.draw(at, member.beam * flicker);
 }

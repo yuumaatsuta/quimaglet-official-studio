@@ -849,7 +849,7 @@ body.is-news .settings-toggle {
 .goods-status.is-soon { color: #f5d98a; }
 .goods-status.is-sold { color: #ff9a9a; opacity: 0.85; }
 
-/* ---------- メンバーの紹介（楽器の前のチップから映すホログラム。memberCard.js） ---------- */
+/* ---------- メンバーの紹介（楽器の前のチップの真上に映すホログラムの表示板。memberCard.js。名前は 3D の memberHolo.js） ---------- */
 
 .member-beam {
   position: fixed;
@@ -864,8 +864,7 @@ body.is-news .settings-toggle {
   position: fixed;
   z-index: 6;
   box-sizing: border-box;
-  max-height: 76vh;
-  padding: 26px 28px 28px;
+  padding: 18px 22px 20px;
   overflow-y: auto;
   color: var(--holo-fg);
   background:
@@ -885,25 +884,6 @@ body.is-news .settings-toggle {
   animation:
     member-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
     holo-flicker 5s 0.7s infinite;
-}
-.member-card.is-left,
-.member-card.is-right {
-  top: 50%;
-  width: min(400px, 38vw);
-  translate: 0 -50%;
-}
-.member-card.is-left {
-  left: 24px;
-}
-.member-card.is-right {
-  right: 24px;
-}
-.member-card.is-top {
-  top: 76px;
-  left: 50%;
-  width: min(440px, calc(100vw - 32px));
-  max-height: 44vh;
-  translate: -50% 0;
 }
 .member-card.is-closing {
   animation: member-out 0.4s cubic-bezier(0.6, 0, 0.8, 0.2) forwards;
@@ -962,20 +942,9 @@ body.is-news .settings-toggle {
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
-.member-name {
-  margin: 0;
-  padding-right: 40px;
-  font-size: 30px;
-  letter-spacing: 0.02em;
-}
-.member-name-en {
-  margin: 2px 0 0;
-  font-size: 13px;
-  letter-spacing: 0.12em;
-  opacity: 0.8;
-}
 .member-roles {
-  margin: 12px 0 0;
+  margin: 0;
+  padding-right: 36px;
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(120, 190, 255, 0.3);
   font-size: 13px;

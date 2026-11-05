@@ -90,8 +90,11 @@ export function crtScreenMaterial({ mode = 'video', seed = 0, aspect = 4 / 3 } =
       const float LINES = 240.0;   // 走査線の本数
       const float OVERSCAN = 1.2;  // ブラウン管らしく、映像の端が少し画面の外にはみ出す
 
+      // sin を使わない乱数（大きな値でも精度が落ちて縞模様にならない）
       float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
       }
 
       // 画面の端ほど映像が引き伸ばされる、ブラウン管のゆがみ
@@ -134,7 +137,7 @@ export function crtScreenMaterial({ mode = 'video', seed = 0, aspect = 4 / 3 } =
           vec2 uv = barrel(vUv);
           // 走査線ごとの小さな横揺れ
           float line = floor(uv.y * LINES);
-          uv.x += (hash(vec2(line, floor(time * 30.0) + seed * 50.0)) - 0.5) * 0.002;
+          uv.x += (hash(vec2(line, mod(floor(time * 30.0), 512.0) + seed * 50.0)) - 0.5) * 0.002;
 
           vec3 color;
           if (mode < 0.5 && hasMap > 0.5) {
@@ -144,7 +147,11 @@ export function crtScreenMaterial({ mode = 'video', seed = 0, aspect = 4 / 3 } =
             color += color * color * 0.12;
             color *= 0.9 + 0.2 * fract(seed * 7.13);
           } else {
-            float n = hash(floor(uv * vec2(240.0, 180.0)) + floor(time * 24.0) * 7.31 + seed * 13.7);
+            // 砂嵐の粒は 1 粒が 2 画素より小さくならないようにする（画面が小さく映るとき、
+            // 画素より細かい粒は波打つ模様（モアレ）になって、画面がよれて見える）
+            vec2 cells = clamp(floor(0.5 / max(fwidth(vUv), vec2(1e-5))), vec2(16.0), vec2(240.0, 180.0));
+            float frame = mod(floor(time * 24.0), 512.0);
+            float n = hash(floor(uv * cells) + vec2(frame * 61.0, frame * 17.0) + seed * 113.7);
             color = vec3(n * n * 0.6);
           }
 

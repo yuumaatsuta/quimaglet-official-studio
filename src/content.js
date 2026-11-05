@@ -159,7 +159,7 @@ function goodsItem(it) {
   return `<li class="goods-item">${img}<div class="goods-text">${status ? `<span class="goods-status ${cls}">${escapeHtml(status)}</span>` : ''}<h3>${title}</h3>${it.price ? `<p class="goods-price">${escapeHtml(it.price)}</p>` : ''}${it.note ? textToHtml(it.note) : ''}</div></li>`;
 }
 
-// メンバーのホログラムの中身
+// メンバーのホログラムの表示板の中身。名前とローマ字は立体の文字で映す（memberHolo.js）ので、ここでは読み上げ用だけ
 export function memberHtml(m) {
   const links = String(m.links ?? '')
     .split('\n')
@@ -171,8 +171,7 @@ export function memberHtml(m) {
     m.image ? `<img class="member-photo" src="${escapeHtml(m.image)}" alt="" />` : '',
     '<div class="member-text">',
     m.part ? `<p class="member-part">${escapeHtml(m.part)}</p>` : '',
-    `<h2 class="member-name" id="member-name">${escapeHtml(m.name ?? '')}</h2>`,
-    m.nameEn ? `<p class="member-name-en">${escapeHtml(m.nameEn)}</p>` : '',
+    `<h2 class="sr-only" id="member-name">${escapeHtml([m.name, m.nameEn].filter(Boolean).join(' / '))}</h2>`,
     m.roles ? `<p class="member-roles">${escapeHtml(m.roles)}</p>` : '',
     '</div>',
     m.bio ? `<div class="member-bio">${textToHtml(m.bio)}</div>` : '',

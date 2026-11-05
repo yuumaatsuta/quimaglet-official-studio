@@ -1,6 +1,6 @@
-// メンバーの紹介のホログラム。楽器の前の床に置いたチップ（studioRoom.js の memberChip）から、
-// 光が扇形に広がって、半透明の青いカード（DOM）を映す。光は 3D の上に重ねた 2D の canvas に描く。
-//   side: 'left' | 'right'（横長の画面で、楽器の反対側に出す）| 'top'（縦長の画面で、上に出す）
+// メンバーの紹介のホログラムのうち、名前以外を映す表示板（DOM）。名前は memberHolo.js の立体の文字。
+// 楽器の前の床に置いたチップ（studioRoom.js の memberChip）の真上に浮かべ、チップから光を扇形に広げて映す。
+// 板の位置と大きさは、main.js が毎フレーム、部屋の中の位置を画面に写して place で渡す。光は 3D の上に重ねた 2D の canvas に描く
 export function createMemberCard({ onClose }) {
   const card = document.createElement('aside');
   card.className = 'member-card';
@@ -23,18 +23,22 @@ export function createMemberCard({ onClose }) {
     get isOpen() {
       return !card.hidden && !closing;
     },
-    // 横に出すときの、カードの幅と余白（main.js がズームの時に空けておく画素）
-    sideWidth() {
-      return Math.min(400, innerWidth * 0.38) + 48;
-    },
-    open(html, side) {
+    open(html) {
       clearTimeout(closing);
       closing = null;
       body.innerHTML = html;
-      card.className = `member-card is-${side}`;
+      card.className = 'member-card';
       card.hidden = false;
       card.scrollTop = 0;
       card.querySelector('.panel-close').focus({ preventScroll: true });
+    },
+    // 画面上の位置と大きさ（px）。left・width はそのまま、top から height の高さの、決まった大きさの板（中身が多いときは板の中で送る）
+    place({ left, top, width, height }) {
+      const st = card.style;
+      st.left = `${Math.round(left)}px`;
+      st.top = `${Math.round(top)}px`;
+      st.width = `${Math.round(width)}px`;
+      st.height = `${Math.round(height)}px`;
     },
     close() {
       if (card.hidden || closing) return;

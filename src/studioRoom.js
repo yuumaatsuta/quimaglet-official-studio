@@ -846,7 +846,9 @@ function applyWorldUV(geo, offset, fn) {
 //   mirror: 床への映り込みと、輪郭に沿った接地の影を付ける（src/floorMirror.js）
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
 //   member: メンバーの楽器（content.js の INSTRUMENTS のキー）。触れると、chip { x, z } に置いた
-//     床のチップから、そのメンバーの紹介をホログラムで映す（main.js・memberCard.js）
+//     床のチップの真上に、そのメンバーの紹介をホログラムで映す（main.js・memberHolo.js・memberCard.js）。
+//     チップは楽器の手前・斜め前に置き、映したときに楽器がホログラムの横から少し見えるようにする。
+//     chip.narrow { x, z }：縦長の画面でのチップの位置（楽器に narrow がないとき）
 //   occluder: 周りの床と壁を暗くする強さ（ambientShade.js。大きな物の足元の暗がり）。[床, 壁] でも書ける
 const FURNITURE = [
   // 部屋の中央・奥寄り（奥の壁から 1.6m）。モデルの正面は -z 向きなので 180° 回す
@@ -868,14 +870,14 @@ const FURNITURE = [
   // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
   {
     url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true,
-    member: 'keyboard', chip: { x: 1.42, z: -6.7 },
+    member: 'keyboard', chip: { x: 1.5, z: -6.1 },
   },
   // 左奥のブラウン管のタワーに立てかけたギター（Gretsch の生成モデル。ピックガードのでっぱりは平らにしてある）。
   // 正面（+z）を部屋の手前へ向け、後ろへ傾けて、いちばん下の段のブラウン管にもたせかける
   {
     url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
-    member: 'gretsch', chip: { x: -1.2, z: -7.72 },
+    member: 'gretsch', chip: { x: -1.85, z: -7.2, narrow: { x: -0.8, z: -7.3 } },
     // 生成モデルの金属っぽさが強く、ボディがぎらつくので抑える
     tone: { metalness: 0, envMapIntensity: 0.15, minRoughness: 0.7 },
   },
@@ -883,10 +885,10 @@ const FURNITURE = [
   // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
   {
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
-    member: 'hb', chip: { x: -2.75, z: -7.2 },
+    member: 'hb', chip: { x: -2.2, z: -6.75 },
     narrow: {
       x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 },
-      chip: { x: -2.2, z: -7.25 },
+      chip: { x: -1.3, z: -6.95 },
     },
   },
   // HB の前の床に置いたエフェクターボード（生成モデル）。踏む側（モデルの +z）を部屋の内側へ向け、斜めに置く。
@@ -908,7 +910,7 @@ const FURNITURE = [
   {
     url: 'models/bass-white.glb', x: 1.7, z: -8.36, rotationY: -0.75, rotationX: -0.33, rotationZ: 0.05, width: 0.415,
     mirror: { height: 0.3, strength: 0.3 },
-    member: 'bass', chip: { x: 1.25, z: -7.85 },
+    member: 'bass', chip: { x: 0.92, z: -7.3 },
   },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
@@ -1028,9 +1030,15 @@ function place(model, item) {
   if (item.focus) group.userData.focus = item.focus;
   if (item.member && item.chip) {
     const chip = memberChip();
-    chip.position.set(item.chip.x, 0, item.chip.z);
-    // チップの光の出る向き（楽器の方を少し向く）
-    chip.rotation.y = Math.atan2(item.x - item.chip.x, item.z - item.chip.z);
+    // chip.narrow: 縦長の画面では別の所に置く（縦長の置き方で動く物と重ならないように）
+    const put = () => {
+      const at = item.chip.narrow && innerWidth / innerHeight < NARROW_ASPECT ? item.chip.narrow : item.chip;
+      chip.position.set(at.x, 0, at.z);
+      // チップの光の出る向き（楽器の方を少し向く）
+      chip.rotation.y = Math.atan2(item.x - at.x, item.z - at.z);
+    };
+    put();
+    if (item.chip.narrow) addEventListener('resize', put);
     group.add(chip);
     group.userData.member = item.member;
     group.userData.chip = chip;
