@@ -6,7 +6,7 @@ import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { floorMirror, footprintShadow } from './floorMirror.js';
 import { mergeStatic } from './mergeStatic.js';
-import { addShelfShade } from './shelfShade.js';
+import { addRoomShade, addShelfShade } from './ambientShade.js';
 import { wallShadow } from './wallShadow.js';
 import { tagHotspot } from './hotspots.js';
 import { buildWallMenu } from './wallMenu.js';
@@ -26,6 +26,7 @@ const D = 10.0;
 const T = 0.25; // 壁・床・天井の厚み
 // 左の壁のコンクリート棚の天端。人の腰〜胸の高さにして、空間の大きさが伝わるように
 const LEDGE_Y = 1.5;
+const SHELF_HEIGHT = 0.84; // コンクリートの棚に載る、木の升目棚の高さ
 
 // 右の窓まわり
 const PIER = 0.85; // 奥の角に残るコンクリートの柱の幅
@@ -70,6 +71,13 @@ export async function buildStudioRoom(onProgress, contentReady) {
     clearcoatRoughness: 0.22,
     envMapIntensity: 0.7, // 窓際で空が映り込みすぎて白く飛ばないように
   });
+  // 壁と床・天井の角、左の壁の出っ張り（コンクリートの棚と木の棚）の上下の暗がり（ambientShade.js）
+  const roomShape = {
+    room: { x0: -W / 2, x1: W / 2, z0: -D, z1: 0, y1: H },
+    block: { x0: -W / 2, x1: -W / 2 + 0.32, y0: LEDGE_Y - 0.12, y1: LEDGE_Y + SHELF_HEIGHT, top: -0.3 },
+  };
+  addRoomShade(concrete, roomShape);
+  addRoomShade(floorMat, roomShape);
   const steel = new THREE.MeshStandardMaterial({ color: '#141516', roughness: 0.45, metalness: 0.6 });
   const pipeMat = new THREE.MeshStandardMaterial({ color: '#8a8d90', roughness: 0.35, metalness: 0.85 });
   const woodTrim = new THREE.MeshStandardMaterial({ color: '#9c7148', roughness: 0.6 });
@@ -107,6 +115,7 @@ export async function buildStudioRoom(onProgress, contentReady) {
   // 天井は床の照り返しを拾いすぎて茶色くならないよう、環境光を弱める
   const ceilingMat = concrete.clone();
   ceilingMat.envMapIntensity = 0.2;
+  addRoomShade(ceilingMat, roomShape); // 複製では付け直しが要る
   box(W + 2 * T, T, D + T, ceilingMat, 0, H + T / 2, -(D + T) / 2);
   box(W + 2 * T, H, T, concrete, 0, H / 2, -D - T / 2);
   box(T, H, D, concrete, -W / 2 - T / 2, H / 2, -D / 2);
@@ -399,7 +408,7 @@ function buildCubbyShelf({ box, textures }) {
   };
   const t = 0.025; // 板厚
   const depth = 0.32;
-  const height = 0.84;
+  const height = SHELF_HEIGHT;
   const rows = 3;
   const cell = 0.45;
   const y0 = LEDGE_Y; // コンクリートの棚の上面
@@ -421,10 +430,10 @@ function buildCubbyShelf({ box, textures }) {
     board(depth, height, t, wood, xc, y0 + height / 2, z);
   }
 
-  // 升目の奥と隅の暗がり（shelfShade.js）
+  // 升目の奥・隅・本の足元の暗がり（ambientShade.js）。本の足元の影の画像は、本を並べてから作る
   const shade = {
-    front: x0 + depth, back: x0 + 0.012, y0, y1: y0 + height, rowPitch: (height - t) / rows,
-    z0, z1, colPitch: (len - t) / cols, t,
+    front: x0 + depth, back: x0 + 0.012, y0, y1: y0 + height, rows, rowPitch: (height - t) / rows,
+    z0, z1, colPitch: (len - t) / cols, t, contact: { value: null },
   };
   addShelfShade(wood, shade);
   addShelfShade(inner, shade);
@@ -437,7 +446,7 @@ function buildCubbyShelf({ box, textures }) {
     for (let c = 0; c < cols; c++) {
       const za = z0 + t + (c * (len - t)) / cols;
       const zb = z0 + ((c + 1) * (len - t)) / cols;
-      cells.push({ yb, yt, za, zb });
+      cells.push({ yb, yt, za, zb, row: r });
     }
   }
   return shelfBooks(cells, { front: x0 + depth, back: x0 + 0.012, shade });
@@ -454,6 +463,7 @@ function shelfBooks(cells, { front, back, shade }) {
     '#c45c3b', '#efe9dc', '#4a6a7a', '#9c2f2f',
   ];
   const books = []; // { w: 厚み(z), h: 高さ(y), d: 奥行き(x), x, y, z, rx, ry, color }
+  const feet = []; // 棚板に落とす足元の影 { x, z, d, w, ry, row, strength }
   const color = () => new THREE.Color(COLORS[Math.floor(rand() * COLORS.length)]).multiplyScalar(r(0.85, 1.08));
   const maxDepth = front - back - 0.01;
 
@@ -480,7 +490,7 @@ function shelfBooks(cells, { front, back, shade }) {
       let z = fromLeft ? cell.za : cell.zb;
       for (const b of row) {
         const zc = fromLeft ? z + b.w / 2 : z - b.w / 2;
-        books.push({ ...b, x: front - 0.012 - b.d / 2 - r(0, 0.015), y: cell.yb, z: zc, rx: 0, ry: r(-0.02, 0.02) });
+        books.push({ ...b, x: front - 0.012 - b.d / 2 - r(0, 0.015), y: cell.yb, z: zc, rx: 0, ry: r(-0.02, 0.02), row: cell.row, floor: true });
         z += (fromLeft ? 1 : -1) * (b.w + 0.0015);
       }
       // 空きがあれば、最後の 1 冊を隣に寄りかからせる
@@ -494,7 +504,11 @@ function shelfBooks(cells, { front, back, shade }) {
         const zBase = z + s * (h * Math.sin(a) + w * Math.cos(a));
         const zc = zBase - s * ((h / 2) * Math.sin(a) + (w / 2) * Math.cos(a));
         const yc = (h / 2) * Math.cos(a) + (w / 2) * Math.sin(a);
-        books.push({ w, h, d: Math.min(maxDepth, r(0.13, 0.2)), x: front - 0.02 - 0.08, y: cell.yb + yc, z: zc, rx: -s * a, ry: 0, color: color(), centered: true });
+        const d = Math.min(maxDepth, r(0.13, 0.2));
+        books.push({ w, h, d, x: front - 0.02 - 0.08, y: cell.yb + yc, z: zc, rx: -s * a, ry: 0, color: color(), centered: true });
+        // 足元の影：底の角から、寄りかかった先の本の下まで（傾いた本の下は薄暗い）
+        const span = h * Math.sin(a) + w * Math.cos(a);
+        feet.push({ x: front - 0.1, z: zBase - (s * span) / 2, d, w: span, ry: 0, row: cell.row, strength: 0.55 });
       }
     } else {
       // 平積み（大判の本・雑誌）。上に小さな本を立てることもある
@@ -504,11 +518,14 @@ function shelfBooks(cells, { front, back, shade }) {
       for (let i = 0; i < n && y < cell.yt - 0.06; i++) {
         const thick = r(0.012, 0.035);
         const w = Math.min(cw * 0.8, r(0.17, 0.27));
-        books.push({ w, h: thick, d: Math.min(maxDepth, r(0.16, 0.24)), x: front - 0.015 - 0.11, y, z: zc + r(-0.01, 0.01), rx: 0, ry: r(-0.08, 0.08), color: color() });
+        books.push({ w, h: thick, d: Math.min(maxDepth, r(0.16, 0.24)), x: front - 0.015 - 0.11, y, z: zc + r(-0.01, 0.01), rx: 0, ry: r(-0.08, 0.08), color: color(), row: cell.row, floor: i === 0 });
         y += thick;
       }
     }
   }
+
+  for (const b of books) if (b.floor) feet.push({ x: b.x, z: b.z, d: b.d, w: b.w, ry: b.ry, row: b.row, strength: 1 });
+  shade.contact.value = shelfContactTexture(feet, shade);
 
   const geo = new THREE.BoxGeometry(1, 1, 1);
   const mat = addShelfShade(new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0 }), shade);
@@ -531,6 +548,66 @@ function shelfBooks(cells, { front, back, shade }) {
   mesh.receiveShadow = true;
   mesh.userData.noPick = true;
   return mesh;
+}
+
+// 棚板の上の、本の足元の影の画像。横が棚の長さ（z）、縦が段ごとの奥行き（x、入口 0 → 奥 1）。
+// 本の底の形を塗り、少しぼかす（接地した所ほど濃く、周りへ 1〜2cm にじむ）
+function shelfContactTexture(feet, { front, back, z0, z1, rows }) {
+  const PX = 0.004; // 1 画素 4mm
+  const W = Math.ceil((z1 - z0) / PX);
+  const RH = Math.ceil((front - back) / PX); // 1 段の縦の画素数
+  const H = RH * rows;
+  const a = new Float32Array(W * H);
+  for (const ft of feet) {
+    const c = Math.cos(ft.ry);
+    const s = Math.sin(ft.ry);
+    const ex = (Math.abs(c) * ft.d + Math.abs(s) * ft.w) / 2;
+    const ez = (Math.abs(s) * ft.d + Math.abs(c) * ft.w) / 2;
+    for (let j = Math.floor((front - ft.x - ex) / PX); j <= Math.ceil((front - ft.x + ex) / PX); j++) {
+      if (j < 0 || j >= RH) continue;
+      for (let i = Math.floor((ft.z - ez - z0) / PX); i <= Math.ceil((ft.z + ez - z0) / PX); i++) {
+        if (i < 0 || i >= W) continue;
+        // 画素の中心を本の向きに戻して、底の長方形の中か調べる
+        const dx = front - j * PX - PX / 2 - ft.x;
+        const dz = z0 + i * PX + PX / 2 - ft.z;
+        const lx = c * dx - s * dz;
+        const lz = s * dx + c * dz;
+        if (Math.abs(lx) <= ft.d / 2 && Math.abs(lz) <= ft.w / 2) {
+          const k = (ft.row * RH + j) * W + i;
+          a[k] = Math.max(a[k], ft.strength);
+        }
+      }
+    }
+  }
+  // 横と縦に 2 回ずつ箱でぼかす（段の境目はまたがない）
+  const blur = (horizontal, r) => {
+    const src = a.slice();
+    const n = horizontal ? W : RH;
+    for (let line = 0; line < (horizontal ? H : W * rows); line++) {
+      const at = horizontal
+        ? (t) => line * W + t
+        : (t) => (Math.floor(line / W) * RH + t) * W + (line % W);
+      let sum = 0;
+      for (let t = -r; t <= r; t++) sum += t >= 0 && t < n ? src[at(t)] : 0;
+      for (let t = 0; t < n; t++) {
+        a[at(t)] = sum / (2 * r + 1);
+        const add = t + r + 1;
+        const sub = t - r;
+        if (add < n) sum += src[at(add)];
+        if (sub >= 0) sum -= src[at(sub)];
+      }
+    }
+  };
+  for (let k = 0; k < 2; k++) {
+    blur(true, 2);
+    blur(false, 2);
+  }
+  const data = new Uint8Array(W * H);
+  for (let k = 0; k < data.length; k++) data[k] = Math.round(Math.min(1, a[k]) * 255);
+  const tex = new THREE.DataTexture(data, W, H, THREE.RedFormat);
+  tex.magFilter = tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 // ---------------------------------------------------------------------------
