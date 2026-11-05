@@ -32,13 +32,13 @@ export function createMemberCard({ onClose }) {
       card.scrollTop = 0;
       card.querySelector('.panel-close').focus({ preventScroll: true });
     },
-    // 画面上の位置と大きさ（px）。left・width はそのまま、top から height の高さの、決まった大きさの板（中身が多いときは板の中で送る）
-    place({ left, top, width, height }) {
+    // 画面上の位置と大きさ（px）。top から下へ、中身の高さだけ伸びる（maxHeight を超えるときだけ板の中で送る）
+    place({ left, top, width, maxHeight }) {
       const st = card.style;
       st.left = `${Math.round(left)}px`;
       st.top = `${Math.round(top)}px`;
       st.width = `${Math.round(width)}px`;
-      st.height = `${Math.round(height)}px`;
+      st.maxHeight = `${Math.round(maxHeight)}px`;
     },
     close() {
       if (card.hidden || closing) return;

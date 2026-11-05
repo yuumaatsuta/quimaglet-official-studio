@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 // メンバーの名前を、床のチップの真上に浮かぶ立体のホログラムにする（main.js の updateMember から動かす）。
 // 文字を描いた板を前後に少しずつずらして重ね（奥の板は濃い青、手前の板は明るい水色）、厚みのある光の文字に見せる。
-// ゆっくり左右に振れるので、厚みが分かる。走査線とちらつきはシェーダーで付ける
+// 少し斜めに向けて厚みを見せ、ごくゆっくりわずかに揺らす。走査線とちらつきはシェーダーで付ける
 const LAYERS = 14;
 const DEPTH = 0.045; // 文字の厚み（m）
 const HEIGHT = 0.3; // 板の高さ（m）。幅は文字の長さで決まる
@@ -122,14 +122,12 @@ export function createMemberHolo(scene) {
       base.copy(at);
       // 下から浮かび上がる
       group.position.set(base.x, base.y - (1 - a) * 0.18, base.z);
-      group.rotation.y = 0.2 * Math.sin(t * 0.55);
-      group.rotation.x = 0.03 * Math.sin(t * 0.8);
+      group.rotation.y = 0.1 + 0.025 * Math.sin(t * 0.35);
       const width = HEIGHT * (CANVAS.w / CANVAS.h);
-      const glitch = Math.sin(t * 13.7) * Math.sin(t * 3.1) > 0.97 ? 0.012 : 0; // ときどき横にずれる
       for (const mesh of layers) {
         const back = mesh.userData.back;
         mesh.scale.set(width * (0.6 + 0.4 * a), HEIGHT, 1);
-        mesh.position.set(back === 0 ? glitch : 0, 0, -back * DEPTH * a);
+        mesh.position.set(0, 0, -back * DEPTH * a);
         mesh.material.uniforms.opacity.value = a * (back === 0 ? 1 : 0.75 - 0.35 * back);
         mesh.material.uniforms.time.value = t;
       }

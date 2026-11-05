@@ -772,14 +772,14 @@ function updateRobotHover() {
 // 楽器に触れると、カメラが楽器の前の床のチップへ寄り、チップの真上にそのメンバーの紹介をホログラムで映す。
 // 名前は立体の光の文字（memberHolo.js）、ほかは名前の下の表示板（memberCard.js）。
 // 表示板は楽器に少しかぶり、左右の奥に楽器が見える。表示板の外を押すか、戻る・Esc で閉じる
-//   layout（m、チップからの高さ・幅）: width 表示板の幅、top/bottom 表示板の上端・下端、name 名前の中心、
+//   layout（m、チップからの高さ・幅）: width 表示板の幅、top 表示板の上端、bottom 表示板が伸びてよい下端、name 名前の中心、
 //   view 寄ったときに映す範囲（w 幅、top 床からの高さ）
 const MEMBER = {
   openAt: 0.75, // ズームがここまで進んだら映し始める
   front: 0.15, // 窓（画面）をチップのどれだけ手前に置くか
   backButton: 96, // 下で空けておく画素（戻るボタンの分）
-  wide: { width: 0.85, top: 1.27, bottom: 0.42, name: 1.47, view: { w: 2.9, top: 1.72 } },
-  tall: { width: 1.0, top: 1.48, bottom: 0.4, name: 1.7, view: { w: 1.3, top: 1.95 } },
+  wide: { width: 1.45, top: 1.1, bottom: 0.28, name: 1.29, view: { w: 2.3, top: 1.45 } },
+  tall: { width: 1.06, top: 1.42, bottom: 0.3, name: 1.62, view: { w: 1.14, top: 1.86 } },
 };
 const member = { key: null, beam: 0, beamTo: 0 };
 const memberCard = createMemberCard({ onClose: () => zoomOut() });
@@ -870,7 +870,7 @@ function updateMember(dt, t) {
     const br = toScreen(memberP.set(c.x + L.width / 2, L.bottom, c.z));
     const width = Math.min(br.x - tl.x, innerWidth - 24);
     const left = Math.min(Math.max((tl.x + br.x) / 2 - width / 2, 12), innerWidth - 12 - width);
-    memberCard.place({ left, top: tl.y, width, height: Math.max(120, br.y - tl.y) });
+    memberCard.place({ left, top: tl.y, width, maxHeight: Math.max(120, br.y - tl.y) });
     const e = toScreen(lit.userData.emitter.getWorldPosition(memberP));
     if (e.front) at = e;
   } else {
