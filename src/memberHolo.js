@@ -2,10 +2,10 @@ import * as THREE from 'three';
 
 // メンバーの名前を、床のチップの真上に浮かぶ立体のホログラムにする（main.js の updateMember から動かす）。
 // 文字を描いた板を前後に少しずつずらして重ね（奥の板は濃い青、手前の板は明るい水色）、厚みのある光の文字に見せる。
-// 少し斜めに向けて厚みを見せ、ごくゆっくりわずかに揺らす。走査線とちらつきはシェーダーで付ける
+// 位置・大きさ・向きは固定（正面向き）。走査線と、たまに起きる映りの乱れはシェーダーだけで付け、板そのものは動かさない
 const LAYERS = 14;
 const DEPTH = 0.045; // 文字の厚み（m）
-const HEIGHT = 0.3; // 板の高さ（m）。幅は文字の長さで決まる
+const HEIGHT = 0.22; // 板の高さ（m）。幅は文字の長さで決まる
 const CANVAS = { w: 1024, h: 300 };
 
 const vertexShader = /* glsl */ `
@@ -20,13 +20,19 @@ const fragmentShader = /* glsl */ `
   uniform float opacity;
   uniform float time;
   uniform float front; // 1: いちばん手前の板（文字の色とにじみをそのまま）、0: 奥の板（側面の色で塗る）
+  uniform float glitch; // 映りの乱れ（-1〜1、ふだんは 0）
   varying vec2 vUv;
+  float hash(float n) { return fract(sin(n) * 43758.5453); }
   void main() {
-    vec4 t = texture2D(map, vUv);
-    // 画面の走査線（流れる）と、文字の横の揺らぎ
-    float scan = 0.78 + 0.22 * sin(gl_FragCoord.y * 1.7 - time * 9.0);
-    float band = smoothstep(0.0, 0.04, abs(fract(vUv.y * 0.7 - time * 0.35) - 0.5));
-    vec3 c = mix(color, t.rgb * color, front) * scan * mix(1.3, 1.0, band);
+    vec2 uv = vUv;
+    // 乱れている間だけ、横の帯ごとに像が左右へずれる（板そのものは動かさない）
+    float row = floor(uv.y * 9.0 + floor(time * 30.0) * 3.1);
+    uv.x += glitch * (hash(row) - 0.5) * 0.05 * step(0.45, hash(row + 7.0));
+    vec4 t = texture2D(map, uv);
+    // 画面の走査線（ゆっくり流れる）と、ときどき通る明るい帯
+    float scan = 0.82 + 0.18 * sin(gl_FragCoord.y * 1.7 - time * 2.0);
+    float band = smoothstep(0.0, 0.04, abs(fract(vUv.y * 0.7 - time * 0.12) - 0.5));
+    vec3 c = mix(color, t.rgb * color, front) * scan * mix(1.2, 1.0, band) * (1.0 - 0.35 * abs(glitch));
     // 奥の板は文字の芯だけ（にじみまで重ねるとぼやける）
     float al = mix(smoothstep(0.45, 0.75, t.a), t.a, front);
     gl_FragColor = vec4(c, al * opacity);
@@ -67,6 +73,7 @@ export function createMemberHolo(scene) {
         front: { value: i === 0 ? 1 : 0 },
         opacity: { value: 0 },
         time: { value: 0 },
+        glitch: { value: 0 },
       },
       vertexShader,
       fragmentShader,
@@ -153,7 +160,6 @@ export function createMemberHolo(scene) {
     shadowTexture.needsUpdate = true;
   }
 
-  const base = new THREE.Vector3();
   let shownFor = null;
   return {
     // 名前を描き直す（同じメンバーなら描かない）
@@ -162,27 +168,26 @@ export function createMemberHolo(scene) {
       shownFor = member;
       draw(member.name ?? '', member.nameEn ?? '');
     },
-    // at: 名前の中心の位置（ワールド）、a: 映り具合 0〜1、t: 時間（秒）
+    // at: 名前の中心の位置（ワールド）、a: 映り具合 0〜1（出るとき・消えるときの濃さだけに使う）、t: 時間（秒）
     update(at, a, t) {
       group.visible = a > 0.003 && !!at;
       if (!group.visible) return;
-      base.copy(at);
-      // 下から浮かび上がる
-      // 正面を向いて止まっている。数秒おきに一瞬だけ、ホログラムの映りが横に揺れる
+      // 位置・大きさ・厚み・向きは固定。変わるのは濃さと、シェーダーの中の映りの乱れだけ
+      group.position.copy(at);
+      group.rotation.set(0, 0, 0);
       const g = glitch(t);
-      group.position.set(base.x + g * 0.012, base.y - (1 - a) * 0.18, base.z);
-      group.rotation.y = 0;
       const width = HEIGHT * (CANVAS.w / CANVAS.h);
-      shadow.scale.set(width * (0.6 + 0.4 * a), HEIGHT, 1);
+      shadow.scale.set(width, HEIGHT, 1);
       shadow.position.set(0, 0, -DEPTH - 0.01);
       shadow.material.opacity = 0.88 * a;
       for (const mesh of layers) {
         const back = mesh.userData.back;
-        mesh.scale.set(width * (0.6 + 0.4 * a), HEIGHT, 1);
-        // 揺れている間は、奥の板ほど横にずれて像がぶれる
-        mesh.position.set(-g * back * 0.02, 0, -back * DEPTH * a);
-        mesh.material.uniforms.opacity.value = a * (back === 0 ? 1 : 0.75 - 0.35 * back);
-        mesh.material.uniforms.time.value = t;
+        mesh.scale.set(width, HEIGHT, 1);
+        mesh.position.set(0, 0, -back * DEPTH);
+        const u = mesh.material.uniforms;
+        u.opacity.value = a * (back === 0 ? 1 : 0.75 - 0.35 * back);
+        u.time.value = t;
+        u.glitch.value = g;
       }
     },
   };

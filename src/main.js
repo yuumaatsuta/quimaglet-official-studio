@@ -775,13 +775,13 @@ function updateRobotHover() {
 // 名前は立体の光の文字（memberHolo.js）、ほかは名前の下の表示板（memberCard.js）。
 // 表示板は楽器に少しかぶり、左右の奥に楽器が見える。表示板の外を押すか、戻る・Esc で閉じる
 //   layout（m、チップからの高さ・幅）: width 表示板の幅、top 表示板の上端、bottom 表示板が伸びてよい下端、name 名前の中心、
-//   view 寄ったときに映す範囲（w 幅、top 床からの高さ）
+//   view 寄ったときに映す範囲（w 幅、top 床からの高さ）、lean 画面の中心をチップから楽器の側へ寄せる割合（楽器が表示板の横に見える）
 const MEMBER = {
   openAt: 0.75, // ズームがここまで進んだら映し始める
   front: 0.15, // 窓（画面）をチップのどれだけ手前に置くか
   backButton: 96, // 下で空けておく画素（戻るボタンの分）
-  wide: { width: 1.45, top: 1.1, bottom: 0.28, name: 1.29, view: { w: 2.3, top: 1.45 } },
-  tall: { width: 1.06, top: 1.42, bottom: 0.3, name: 1.62, view: { w: 1.14, top: 1.86 } },
+  wide: { width: 1.0, top: 0.84, bottom: 0.22, name: 0.99, view: { w: 1.5, top: 1.13 }, lean: 0.55 },
+  tall: { width: 1.06, top: 1.42, bottom: 0.3, name: 1.62, view: { w: 1.14, top: 1.86 }, lean: 0 },
 };
 const member = { key: null, beam: 0, beamTo: 0 };
 const memberCard = createMemberCard({ onClose: () => zoomOut() });
@@ -795,15 +795,16 @@ function memberFor(key) {
 }
 const memberLayout = () => (innerWidth / innerHeight < 1 ? MEMBER.tall : MEMBER.wide);
 
-// チップの真上のホログラムが、戻るボタンの上の空きの真ん中に来る窓
-function memberWindow(chip) {
+// チップの真上のホログラムが、戻るボタンの上の空きに来る窓。横は楽器の側へ少し寄せ、楽器が表示板の横に見えるようにする
+function memberWindow(chip, instrument) {
   const L = memberLayout();
   const aspect = innerWidth / innerHeight;
   const usable = Math.max(0.4, (innerHeight - MEMBER.backButton) / innerHeight);
   const low = -0.06; // チップの下に少し床を見せる
   const halfH = Math.max((L.view.top - low) / 2 / usable, L.view.w / 2 / aspect);
   const b = (MEMBER.backButton * 2 * halfH) / innerHeight;
-  return { cx: chip.x, cy: (L.view.top + low) / 2 - b / 2, cz: chip.z + MEMBER.front, halfW: halfH * aspect, halfH };
+  const lean = THREE.MathUtils.clamp((instrument.x - chip.x) * L.lean, -0.4, 0.4);
+  return { cx: chip.x + lean, cy: (L.view.top + low) / 2 - b / 2, cz: chip.z + MEMBER.front, halfW: halfH * aspect, halfH };
 }
 
 function openMember(key) {
@@ -825,7 +826,7 @@ function openMember(key) {
   member.beamTo = 0;
   memberHolo.set(info);
   // 縦横が変わったら（スマホを回したら）置き方の変わったチップへ寄り直す
-  zoomToObject(m.shown(), { window: () => memberWindow(m.chip().getWorldPosition(chipPos)) });
+  zoomToObject(m.shown(), { window: () => memberWindow(m.chip().getWorldPosition(chipPos), m.shown().userData.instrumentAt) });
   zoomBack.hidden = false;
 }
 
@@ -866,7 +867,8 @@ function updateMember(dt, t) {
     const c = lit.getWorldPosition(chipPos);
     // 名前の立体の文字（表示板が映ってから浮かび上がる）
     const nameA = memberCard.isOpen || !member.key ? Math.max(0, (member.beam - 0.5) * 2) : 0;
-    memberHolo.update(memberAt.set(c.x, L.name, c.z), nameA * flicker, t);
+    // 名前はちらつかせない（濃さが変わると揺れて見える）。映りの乱れは memberHolo の中で、たまにだけ
+    memberHolo.update(memberAt.set(c.x, L.name, c.z), nameA, t);
     // 表示板：チップの真上の、部屋の中の板の四隅を画面に写す
     const tl = toScreen(memberP.set(c.x - L.width / 2, L.top, c.z));
     const br = toScreen(memberP.set(c.x + L.width / 2, L.bottom, c.z));
@@ -1108,6 +1110,16 @@ if (room.shutter && fixedShutter !== null) {
   setShutter(shutterProgress, false);
 } else if (room.shutter) {
   setTimeout(() => (shutterTarget = 1), CONFIG.shutterDelayMs);
+}
+
+// ?member=gretsch のように付けると、読み込み後にその楽器のメンバー紹介を開く（見た目の確認用）
+const fixedMember = new URLSearchParams(location.search).get('member');
+if (fixedMember) {
+  const wait = setInterval(() => {
+    if (!room.members?.get(fixedMember)) return;
+    clearInterval(wait);
+    openMember(fixedMember);
+  }, 300);
 }
 
 const initial = location.hash.slice(1);

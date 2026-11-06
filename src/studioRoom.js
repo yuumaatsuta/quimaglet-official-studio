@@ -870,14 +870,14 @@ const FURNITURE = [
   // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
   {
     url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true,
-    member: 'keyboard', chip: { x: 1.5, z: -6.1 },
+    member: 'keyboard', chip: { x: 1.45, z: -6.65 },
   },
   // 左奥のブラウン管のタワーに立てかけたギター（Gretsch の生成モデル。ピックガードのでっぱりは平らにしてある）。
   // 正面（+z）を部屋の手前へ向け、後ろへ傾けて、いちばん下の段のブラウン管にもたせかける
   {
     url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
-    member: 'gretsch', chip: { x: -1.85, z: -7.2, narrow: { x: -0.8, z: -7.3 } },
+    member: 'gretsch', chip: { x: -1.9, z: -7.65, narrow: { x: -0.8, z: -7.3 } },
     // 生成モデルの金属っぽさが強く、ボディがぎらつくので抑える
     tone: { metalness: 0, envMapIntensity: 0.15, minRoughness: 0.7 },
   },
@@ -885,7 +885,7 @@ const FURNITURE = [
   // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
   {
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
-    member: 'hb', chip: { x: -2.2, z: -6.75 },
+    member: 'hb', chip: { x: -2.15, z: -7.0 },
     narrow: {
       x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 },
       chip: { x: -1.3, z: -6.95 },
@@ -910,7 +910,7 @@ const FURNITURE = [
   {
     url: 'models/bass-white.glb', x: 1.7, z: -8.36, rotationY: -0.75, rotationX: -0.33, rotationZ: 0.05, width: 0.415,
     mirror: { height: 0.3, strength: 0.3 },
-    member: 'bass', chip: { x: 0.92, z: -7.3 },
+    member: 'bass', chip: { x: 1.0, z: -7.7 },
   },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
@@ -1042,6 +1042,7 @@ function place(model, item) {
     group.add(chip);
     group.userData.member = item.member;
     group.userData.chip = chip;
+    group.userData.instrumentAt = new THREE.Vector3(item.x, 0, item.z); // 楽器を置いた所（寄るときの画面の寄せ先）
   }
   // 置いた後の位置で測り直す（box は動かす前の座標）。on で上に載せるときに使う
   model.updateMatrixWorld(true);
