@@ -1055,7 +1055,8 @@ function memberChip() {
   const chip = new THREE.Group();
   const body = new THREE.Mesh(
     new THREE.CylinderGeometry(0.052, 0.06, 0.018, 40),
-    new THREE.MeshStandardMaterial({ color: '#16181c', metalness: 0.7, roughness: 0.35 }),
+    // 艶のある上塗りで、部屋の明かりが本体に映り込む
+    new THREE.MeshPhysicalMaterial({ color: '#16181c', metalness: 0.7, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1.4 }),
   );
   body.position.y = 0.009;
   body.castShadow = true;
@@ -1072,7 +1073,23 @@ function memberChip() {
   ring.userData.noHighlight = lens.userData.noHighlight = true;
   const emitter = new THREE.Object3D();
   emitter.position.y = 0.022;
-  chip.add(body, ring, lens, emitter);
+  // 接地の影：本体の真下とその周りに溜まる暗がり
+  const { shadow: shadowTex, light: lightTex } = chipFloorTextures();
+  const floorPlane = (map, size, opts) => {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(size, size),
+      new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, ...opts }),
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.userData.noPick = m.userData.noHighlight = true;
+    return m;
+  };
+  const shadow = floorPlane(shadowTex, 0.2, { opacity: 0.85 });
+  shadow.position.y = 0.0012;
+  // 床への映り込み：輪の青い光が艶のある床に映ってにじむ（明滅と映している間の明るさに合わせる）
+  const light = floorPlane(lightTex, 0.36, { color: '#5aa8ff', blending: THREE.AdditiveBlending, opacity: 0 });
+  light.position.y = 0.0016;
+  chip.add(shadow, light, body, ring, lens, emitter);
   let glow = 0;
   chip.userData.emitter = emitter;
   chip.userData.setGlow = (a) => (glow = a);
@@ -1081,8 +1098,48 @@ function memberChip() {
     ring.material.opacity = Math.min(1, idle + glow * 0.65);
     lens.material.opacity = Math.min(1, 0.5 + glow * 0.5);
     lens.material.color.setRGB(0.49 + glow * 0.4, 0.77 + glow * 0.2, 1);
+    light.material.opacity = Math.min(1, 0.8 * idle + 0.6 * glow);
   };
   return chip;
+}
+
+// チップの床の影と光の映り込みの画像（全チップで共有）
+let chipFloor;
+function chipFloorTextures() {
+  if (chipFloor) return chipFloor;
+  const size = 128;
+  const make = (paint) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    paint(canvas.getContext('2d'), size / 2);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+  chipFloor = {
+    // 板 0.2m のうち、本体（半径 0.06m）の縁まで濃く、その外へやわらかく消える
+    shadow: make((ctx, r) => {
+      const g = ctx.createRadialGradient(r, r, 0, r, r, r);
+      g.addColorStop(0, 'rgba(0,0,0,0.95)');
+      g.addColorStop(0.55, 'rgba(0,0,0,0.75)');
+      g.addColorStop(0.75, 'rgba(0,0,0,0.3)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    }),
+    // 板 0.36m。本体の縁のすぐ外がいちばん明るく、外へ広がって消える輪（本体の下は影の上なので暗いまま）
+    light: make((ctx, r) => {
+      const g = ctx.createRadialGradient(r, r, 0, r, r, r);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.3, 'rgba(255,255,255,0.15)');
+      g.addColorStop(0.38, 'rgba(255,255,255,0.9)');
+      g.addColorStop(0.55, 'rgba(255,255,255,0.35)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    }),
+  };
+  return chipFloor;
 }
 
 // 壁のギターハンガー：黒い小さな台座と、ネックを両側から受ける 2 本の腕（左の壁、x = -W / 2 に付ける）。

@@ -33,6 +33,17 @@ const fragmentShader = /* glsl */ `
     #include <colorspace_fragment>
   }`;
 
+// たまに起きる映りの乱れ（-1〜1）。約 4.5 秒ごとに 0.25 秒だけ、細かく揺れる。それ以外は 0
+function glitch(t) {
+  const period = 4.5;
+  const k = Math.floor(t / period);
+  const start = ((k * 0.618) % 1) * (period - 0.4); // 毎回違う時刻に起きる
+  const local = t - k * period - start;
+  if (local < 0 || local > 0.25) return 0;
+  const env = Math.sin((local / 0.25) * Math.PI);
+  return env * Math.sign(Math.sin(t * 90)) * (0.5 + 0.5 * Math.abs(Math.sin(t * 37)));
+}
+
 export function createMemberHolo(scene) {
   const canvas = document.createElement('canvas');
   canvas.width = CANVAS.w;
@@ -157,8 +168,10 @@ export function createMemberHolo(scene) {
       if (!group.visible) return;
       base.copy(at);
       // 下から浮かび上がる
-      group.position.set(base.x, base.y - (1 - a) * 0.18, base.z);
-      group.rotation.y = 0.1 + 0.025 * Math.sin(t * 0.35);
+      // 正面を向いて止まっている。数秒おきに一瞬だけ、ホログラムの映りが横に揺れる
+      const g = glitch(t);
+      group.position.set(base.x + g * 0.012, base.y - (1 - a) * 0.18, base.z);
+      group.rotation.y = 0;
       const width = HEIGHT * (CANVAS.w / CANVAS.h);
       shadow.scale.set(width * (0.6 + 0.4 * a), HEIGHT, 1);
       shadow.position.set(0, 0, -DEPTH - 0.01);
@@ -166,7 +179,8 @@ export function createMemberHolo(scene) {
       for (const mesh of layers) {
         const back = mesh.userData.back;
         mesh.scale.set(width * (0.6 + 0.4 * a), HEIGHT, 1);
-        mesh.position.set(0, 0, -back * DEPTH * a);
+        // 揺れている間は、奥の板ほど横にずれて像がぶれる
+        mesh.position.set(-g * back * 0.02, 0, -back * DEPTH * a);
         mesh.material.uniforms.opacity.value = a * (back === 0 ? 1 : 0.75 - 0.35 * back);
         mesh.material.uniforms.time.value = t;
       }
