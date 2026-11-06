@@ -880,6 +880,7 @@ body.is-news .settings-toggle {
   backdrop-filter: blur(3px);
   text-shadow: 0 0 8px rgba(80, 170, 255, 0.55);
   touch-action: pan-y;
+  container: member / inline-size;
   /* 下のチップから映すので、下から上へ広がって映る */
   animation:
     member-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -923,34 +924,135 @@ body.is-news .settings-toggle {
     opacity: 0;
   }
 }
+.member-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 40px 14px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(120, 190, 255, 0.3);
+  color: var(--holo-accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+}
+.member-head i {
+  margin: 0 0.3em;
+  font-style: normal;
+  opacity: 0.5;
+}
+.member-no {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+/* 写真（左）と項目（右）。狭いときは写真を上に */
+.member-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 18px;
+  align-items: start;
+}
+.member-grid > .member-photo {
+  grid-row: 1 / span 3;
+}
+.member-grid > .member-bio,
+.member-grid > .member-links {
+  grid-column: 2;
+}
+.member-grid.is-text {
+  grid-template-columns: 1fr;
+}
+.member-grid.is-text > * {
+  grid-column: 1;
+}
+/* 狭いとき（スマホ）：写真は小さく項目の横に、紹介文は下に全幅で */
+@container member (max-width: 420px) {
+  .member-grid {
+    grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+    gap: 12px 14px;
+  }
+  .member-grid > .member-photo {
+    grid-row: auto;
+  }
+  .member-grid > .member-bio,
+  .member-grid > .member-links {
+    grid-column: 1 / -1;
+  }
+  .member-brand {
+    display: none;
+  }
+  .member-fields {
+    gap: 6px;
+  }
+}
+/* 写真もホログラム：半透明で青く透け、走査線と縁の光を重ねる */
 .member-photo {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 1px solid rgba(140, 200, 255, 0.55);
+  box-shadow: 0 0 18px rgba(60, 140, 255, 0.35), inset 0 0 0 1px rgba(200, 230, 255, 0.15);
+}
+.member-photo img {
   display: block;
   width: 100%;
-  max-height: 220px;
-  margin-bottom: 18px;
+  height: 100%;
   object-fit: cover;
-  border: 1px solid rgba(120, 190, 255, 0.35);
-  /* ホログラムらしく、写真も青く透かす */
-  filter: saturate(0.6) brightness(1.05);
-  opacity: 0.85;
+  opacity: 0.72;
+  filter: saturate(0.75) contrast(1.05) brightness(1.08);
   mix-blend-mode: screen;
 }
-.member-part {
-  margin: 0 0 6px;
-  color: var(--holo-accent);
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+.member-photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(to bottom, rgba(150, 210, 255, 0.12) 0 1px, transparent 1px 3px),
+    linear-gradient(to top, rgba(40, 120, 255, 0.28), rgba(40, 120, 255, 0.05) 55%, rgba(120, 200, 255, 0.12));
+  pointer-events: none;
 }
-.member-roles {
+/* 四隅の印（ファインダーのような枠） */
+.member-photo::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  z-index: 1;
+  background:
+    linear-gradient(var(--holo-accent), var(--holo-accent)) top left / 12px 1px no-repeat,
+    linear-gradient(var(--holo-accent), var(--holo-accent)) top left / 1px 12px no-repeat,
+    linear-gradient(var(--holo-accent), var(--holo-accent)) bottom right / 12px 1px no-repeat,
+    linear-gradient(var(--holo-accent), var(--holo-accent)) bottom right / 1px 12px no-repeat;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.member-fields {
+  display: grid;
+  gap: 10px;
   margin: 0;
-  padding-right: 36px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(120, 190, 255, 0.3);
+}
+.member-fields dt {
+  margin-bottom: 2px;
+  color: var(--holo-accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  opacity: 0.85;
+}
+.member-fields dd {
+  margin: 0;
   font-size: 13px;
+  line-height: 1.5;
+}
+.member-fields div:first-child dd {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 .member-bio {
-  margin-top: 14px;
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 1px solid rgba(120, 190, 255, 0.25);
   font-size: 14px;
   line-height: 1.8;
 }

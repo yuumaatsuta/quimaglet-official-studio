@@ -46,19 +46,19 @@ export const INSTRUMENTS = { gretsch: 'ギター（Gretsch・青）', hb: 'ギ�
 export const DEFAULT_MEMBERS = [
   {
     name: '渡辺 美月', nameEn: 'Mizuki Watanabe', part: 'Vocal & Guitar', roles: '作詞・作曲 / プロモーション',
-    bio: 'Moonfusion. An expansive singing voice and an expressive, emotion-filled delivery.', image: '', links: '', instrument: 'gretsch',
+    bio: 'Moonfusion. An expansive singing voice and an expressive, emotion-filled delivery.', image: 'images/members/mizuki.jpg', links: '', instrument: 'gretsch',
   },
   {
     name: '熱田 悠馬', nameEn: 'Yuma Atsuta', part: 'Guitar & Chorus', roles: '作詞・作曲 / アートワーク / エンジニア',
-    bio: 'Responsible for intricate guitar work—blending alternative, jazz, and bossa nova—as well as visual presentation.', image: '', links: '', instrument: 'hb',
+    bio: 'Responsible for intricate guitar work—blending alternative, jazz, and bossa nova—as well as visual presentation.', image: 'images/members/yuma.jpg', links: '', instrument: 'hb',
   },
   {
     name: '内田 泰河', nameEn: 'Taiga Uchida', part: 'Bass', roles: '編曲 / グッズ企画・デザイン',
-    bio: 'With its distinctive melodic lines and memorable phrases, it elevates the ensemble.', image: '', links: '', instrument: 'bass',
+    bio: 'With its distinctive melodic lines and memorable phrases, it elevates the ensemble.', image: 'images/members/taiga.jpg', links: '', instrument: 'bass',
   },
   {
     name: '浅葉 瑛太', nameEn: 'Eita Asaba', part: 'Keys & Sub Vocal', roles: '作詞・作曲 / 編曲',
-    bio: 'Classical hands, electronic heart.', image: '', links: '', instrument: 'keyboard',
+    bio: 'Classical hands, electronic heart.', image: 'images/members/eita.jpg', links: '', instrument: 'keyboard',
   },
 ];
 export const MEMBERS = DEFAULT_MEMBERS.map((m) => ({ ...m }));
@@ -127,7 +127,8 @@ export function applyContent(data) {
   }
   if (Array.isArray(data?.members) && data.members.length) {
     MEMBERS.length = 0;
-    for (const m of data.members) if (m?.name) MEMBERS.push({ ...m });
+    // 写真が空なら、同じ名前の既定の写真（アーティストシートの写真）を使う
+    for (const m of data.members) if (m?.name) MEMBERS.push({ ...m, image: m.image || DEFAULT_MEMBERS.find((d) => d.name === m.name)?.image || '' });
   }
   const news = (data?.news ?? []).filter((n) => n.title || n.body);
   if (news.length) {
@@ -167,15 +168,22 @@ export function memberHtml(m) {
     .filter(Boolean)
     .map(([, label, url]) => `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label || url.replace(/^https?:\/\/(www\.)?/, ''))}</a></li>`)
     .join('');
+  // 写真の場所：http で始まらなければサイトの中のファイル（public/）
+  const image = m.image && !/^(https?:|data:|\/)/.test(m.image) ? `${import.meta.env.BASE_URL}${m.image}` : m.image;
+  const no = String(Math.max(1, MEMBERS.indexOf(m) + 1)).padStart(2, '0');
+  // 英語の名前は上に浮かぶ立体の文字（memberHolo.js）。表示板には日本語の名前を項目として載せる
+  const field = (label, value) => (value ? `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '');
   return [
-    m.image ? `<img class="member-photo" src="${escapeHtml(m.image)}" alt="" />` : '',
-    '<div class="member-text">',
-    m.part ? `<p class="member-part">${escapeHtml(m.part)}</p>` : '',
-    `<h2 class="sr-only" id="member-name">${escapeHtml([m.name, m.nameEn].filter(Boolean).join(' / '))}</h2>`,
-    m.roles ? `<p class="member-roles">${escapeHtml(m.roles)}</p>` : '',
+    `<header class="member-head"><span><span class="member-brand">QUIMAGLET <i>/</i> </span>MEMBER PROFILE</span><span class="member-no">No.${no}</span></header>`,
+    `<div class="member-grid${image ? '' : ' is-text'}">`,
+    image ? `<figure class="member-photo"><img src="${escapeHtml(image)}" alt="" /></figure>` : '',
+    '<div class="member-info">',
+    `<h2 class="sr-only" id="member-name">${escapeHtml([m.nameEn, m.name].filter(Boolean).join(' / '))}</h2>`,
+    `<dl class="member-fields">${field('NAME', m.name)}${field('PART', m.part)}${field('ROLE', m.roles)}</dl>`,
     '</div>',
     m.bio ? `<div class="member-bio">${textToHtml(m.bio)}</div>` : '',
     links ? `<ul class="member-links">${links}</ul>` : '',
+    '</div>',
   ].join('');
 }
 

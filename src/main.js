@@ -780,8 +780,8 @@ const MEMBER = {
   openAt: 0.75, // ズームがここまで進んだら映し始める
   front: 0.15, // 窓（画面）をチップのどれだけ手前に置くか
   backButton: 96, // 下で空けておく画素（戻るボタンの分）
-  wide: { width: 1.0, top: 0.84, bottom: 0.22, name: 0.99, view: { w: 1.5, top: 1.13 }, lean: 0.55 },
-  tall: { width: 1.06, top: 1.42, bottom: 0.3, name: 1.62, view: { w: 1.14, top: 1.86 }, lean: 0 },
+  wide: { width: 1.1, top: 0.92, bottom: 0.2, name: 1.07, view: { w: 1.5, top: 1.2 }, lean: 0.5 },
+  tall: { width: 1.06, top: 1.6, bottom: 0.5, name: 1.81, view: { w: 1.14, top: 1.96 }, lean: 0 },
 };
 const member = { key: null, beam: 0, beamTo: 0 };
 const memberCard = createMemberCard({ onClose: () => zoomOut() });
@@ -803,7 +803,7 @@ function memberWindow(chip, instrument) {
   const low = -0.06; // チップの下に少し床を見せる
   const halfH = Math.max((L.view.top - low) / 2 / usable, L.view.w / 2 / aspect);
   const b = (MEMBER.backButton * 2 * halfH) / innerHeight;
-  const lean = THREE.MathUtils.clamp((instrument.x - chip.x) * L.lean, -0.4, 0.4);
+  const lean = THREE.MathUtils.clamp((instrument.x - chip.x) * L.lean, -0.6, 0.6);
   return { cx: chip.x + lean, cy: (L.view.top + low) / 2 - b / 2, cz: chip.z + MEMBER.front, halfW: halfH * aspect, halfH };
 }
 

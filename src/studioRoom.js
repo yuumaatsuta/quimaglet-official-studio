@@ -847,7 +847,7 @@ function applyWorldUV(geo, offset, fn) {
 //   wander: 画面の外から外へ左右に往復させ、ときどき立ち止まって見回させる（robotWander）
 //   member: メンバーの楽器（content.js の INSTRUMENTS のキー）。触れると、chip { x, z } に置いた
 //     床のチップの真上に、そのメンバーの紹介をホログラムで映す（main.js・memberHolo.js・memberCard.js）。
-//     チップは楽器の手前・斜め前に置き、映したときに楽器がホログラムの横から少し見えるようにする。
+//     チップは楽器の横・少し手前に置き、寄ったときに楽器とホログラムが横に並んで映るようにする。
 //     chip.narrow { x, z }：縦長の画面でのチップの位置（楽器に narrow がないとき）
 //   occluder: 周りの床と壁を暗くする強さ（ambientShade.js。大きな物の足元の暗がり）。[床, 壁] でも書ける
 const FURNITURE = [
@@ -870,14 +870,14 @@ const FURNITURE = [
   // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
   {
     url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true,
-    member: 'keyboard', chip: { x: 1.45, z: -6.65 },
+    member: 'keyboard', chip: { x: 1.0, z: -6.95 },
   },
   // 左奥のブラウン管のタワーに立てかけたギター（Gretsch の生成モデル。ピックガードのでっぱりは平らにしてある）。
   // 正面（+z）を部屋の手前へ向け、後ろへ傾けて、いちばん下の段のブラウン管にもたせかける
   {
     url: 'models/guitar-gretsch.glb', x: -1.39, z: -8.35, rotationY: 0.29, rotationX: -0.27, width: 0.45,
     mirror: { height: 0.3, strength: 0.3 },
-    member: 'gretsch', chip: { x: -1.9, z: -7.65, narrow: { x: -0.8, z: -7.3 } },
+    member: 'gretsch', chip: { x: -0.5, z: -7.75, narrow: { x: -1.15, z: -7.45 } },
     // 生成モデルの金属っぽさが強く、ボディがぎらつくので抑える
     tone: { metalness: 0, envMapIntensity: 0.15, minRoughness: 0.7 },
   },
@@ -885,10 +885,10 @@ const FURNITURE = [
   // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
   {
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
-    member: 'hb', chip: { x: -2.15, z: -7.0 },
+    member: 'hb', chip: { x: -2.0, z: -7.4 },
     narrow: {
       x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 },
-      chip: { x: -1.3, z: -6.95 },
+      chip: { x: -1.65, z: -7.05 },
     },
   },
   // HB の前の床に置いたエフェクターボード（生成モデル）。踏む側（モデルの +z）を部屋の内側へ向け、斜めに置く。
@@ -910,7 +910,7 @@ const FURNITURE = [
   {
     url: 'models/bass-white.glb', x: 1.7, z: -8.36, rotationY: -0.75, rotationX: -0.33, rotationZ: 0.05, width: 0.415,
     mirror: { height: 0.3, strength: 0.3 },
-    member: 'bass', chip: { x: 1.0, z: -7.7 },
+    member: 'bass', chip: { x: 0.85, z: -7.85 },
   },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },

@@ -58,6 +58,14 @@ export function createMemberHolo(scene) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
+  // いちばん手前の板だけの絵（名前に、小さい日本語の名前を足したもの）。小さい字は厚みを付けるとつぶれるので、奥の板には描かない
+  const frontCanvas = document.createElement('canvas');
+  frontCanvas.width = CANVAS.w;
+  frontCanvas.height = CANVAS.h;
+  const frontCtx = frontCanvas.getContext('2d');
+  const frontTexture = new THREE.CanvasTexture(frontCanvas);
+  frontTexture.colorSpace = THREE.SRGBColorSpace;
+  frontTexture.anisotropy = 4;
 
   const group = new THREE.Group();
   group.visible = false;
@@ -68,7 +76,7 @@ export function createMemberHolo(scene) {
     const back = i / (LAYERS - 1); // 0: いちばん手前、1: いちばん奥
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        map: { value: texture },
+        map: { value: i === 0 ? frontTexture : texture },
         color: { value: i === 0 ? new THREE.Color(1, 1, 1) : new THREE.Color().setRGB(0.12 + 0.2 * (1 - back), 0.35 + 0.3 * (1 - back), 0.95) },
         front: { value: i === 0 ? 1 : 0 },
         opacity: { value: 0 },
@@ -104,58 +112,89 @@ export function createMemberHolo(scene) {
   scene.add(group);
 
   // 名前（大きく）と、ローマ字（小さく、字間を空けて）を描く。板の横幅を文字に合わせる
+  // 英語の名前を主役に：名は細く、姓は太く、字間を空けて 1 行に。下に小さく日本語の名前と、両脇の細い線
   function draw(name, nameEn) {
-    ctx.clearRect(0, 0, CANVAS.w, CANVAS.h);
-    const font = 'Inter, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif';
-    let size = 150;
-    ctx.font = `700 ${size}px ${font}`;
-    const w = ctx.measureText(name).width;
-    if (w > CANVAS.w - 80) {
-      size *= (CANVAS.w - 80) / w;
-      ctx.font = `700 ${size}px ${font}`;
+    const font = 'Inter, "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", sans-serif';
+    const en = String(nameEn || '').trim().toUpperCase();
+    const [first, ...rest] = (en || name).split(/\s+/);
+    const last = rest.join(' ');
+    const sub = en ? name : '';
+    let size = 120;
+    const spacing = () => `${Math.round(size * 0.1)}px`;
+    // 名・空き・姓の幅を測って、はみ出すなら縮める
+    const measure = (c) => {
+      c.letterSpacing = spacing();
+      c.font = `300 ${size}px ${font}`;
+      const a = c.measureText(first).width;
+      c.font = `800 ${size}px ${font}`;
+      const b = last ? c.measureText(last).width : 0;
+      return { a, b, gap: last ? size * 0.32 : 0 };
+    };
+    let m = measure(ctx);
+    const max = CANVAS.w - 60;
+    if (m.a + m.gap + m.b > max) {
+      size *= max / (m.a + m.gap + m.b);
+      m = measure(ctx);
     }
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    const nameY = nameEn ? 170 : 200;
-    // 光のにじみ → 芯
-    ctx.shadowColor = 'rgba(70, 160, 255, 0.9)';
-    ctx.shadowBlur = 22;
-    ctx.fillStyle = 'rgb(150, 205, 255)';
-    ctx.fillText(name, CANVAS.w / 2, nameY);
-    ctx.shadowBlur = 6;
-    ctx.fillStyle = 'rgb(235, 246, 255)';
-    ctx.fillText(name, CANVAS.w / 2, nameY);
-    if (nameEn) {
-      ctx.font = `500 46px ${font}`;
-      ctx.letterSpacing = '14px';
-      ctx.shadowBlur = 14;
-      ctx.fillStyle = 'rgb(140, 200, 255)';
-      ctx.fillText(nameEn.toUpperCase(), CANVAS.w / 2, 256);
+    const nameY = sub ? 160 : 190;
+    const x0 = (CANVAS.w - (m.a + m.gap + m.b)) / 2;
+    const paint = (c, stroke, withSub = true) => {
+      c.textAlign = 'left';
+      c.textBaseline = 'alphabetic';
+      c.letterSpacing = spacing();
+      c.font = `300 ${size}px ${font}`;
+      if (stroke) c.strokeText(first, x0, nameY);
+      c.fillText(first, x0, nameY);
+      if (last) {
+        c.font = `800 ${size}px ${font}`;
+        if (stroke) c.strokeText(last, x0 + m.a + m.gap, nameY);
+        c.fillText(last, x0 + m.a + m.gap, nameY);
+      }
+      if (sub && withSub) {
+        c.textAlign = 'center';
+        c.font = `600 42px ${font}`;
+        c.letterSpacing = '12px';
+        if (stroke) c.strokeText(sub, CANVAS.w / 2, 242);
+        c.fillText(sub, CANVAS.w / 2, 242);
+      }
+      c.letterSpacing = '0px';
+    };
+
+    // 光のにじみ → 芯。奥の板の絵は名前だけ、手前の板の絵は日本語の名前と線も
+    for (const [c, withSub] of [[ctx, false], [frontCtx, true]]) {
+      c.clearRect(0, 0, CANVAS.w, CANVAS.h);
+      c.shadowColor = 'rgba(70, 160, 255, 0.9)';
+      c.shadowBlur = 22;
+      c.fillStyle = 'rgb(150, 205, 255)';
+      paint(c, false, withSub);
+      c.shadowBlur = 6;
+      c.fillStyle = 'rgb(235, 246, 255)';
+      paint(c, false, withSub);
+      c.shadowBlur = 0;
+    }
+    // 日本語の名前の両脇の細い線
+    if (sub) {
+      const ctx = frontCtx;
+      ctx.font = `600 42px ${font}`;
+      ctx.letterSpacing = '12px';
+      const sw = ctx.measureText(sub).width;
       ctx.letterSpacing = '0px';
+      ctx.fillStyle = 'rgba(140, 200, 255, 0.85)';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(CANVAS.w / 2 - sw / 2 - 110, 228, 80, 2);
+      ctx.fillRect(CANVAS.w / 2 + sw / 2 + 30, 228, 80, 2);
     }
-    ctx.shadowBlur = 0;
     texture.needsUpdate = true;
+    frontTexture.needsUpdate = true;
 
     // 影：文字を太らせて（縁取り）、大きくぼかす
     const sc = shadowCtx;
     sc.clearRect(0, 0, CANVAS.w, CANVAS.h);
     sc.filter = 'blur(12px)';
-    sc.textAlign = 'center';
-    sc.textBaseline = 'alphabetic';
     sc.fillStyle = sc.strokeStyle = '#fff';
     sc.lineJoin = 'round';
-    sc.font = `700 ${size}px ${font}`;
-    sc.lineWidth = 36;
-    sc.strokeText(name, CANVAS.w / 2, nameY);
-    sc.fillText(name, CANVAS.w / 2, nameY);
-    if (nameEn) {
-      sc.font = `500 46px ${font}`;
-      sc.letterSpacing = '14px';
-      sc.lineWidth = 30;
-      sc.strokeText(nameEn.toUpperCase(), CANVAS.w / 2, 256);
-      sc.fillText(nameEn.toUpperCase(), CANVAS.w / 2, 256);
-      sc.letterSpacing = '0px';
-    }
+    sc.lineWidth = 30;
+    paint(sc, true);
     sc.filter = 'none';
     shadowTexture.needsUpdate = true;
   }
