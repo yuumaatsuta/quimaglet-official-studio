@@ -782,7 +782,7 @@ const MEMBER = {
   openAt: 0.75, // ズームがここまで進んだら映し始める
   front: 0.15, // 窓（画面）をチップのどれだけ手前に置くか
   backButton: 96, // 下で空けておく画素（戻るボタンの分）
-  wide: { width: 1.1, top: 0.92, bottom: 0.2, name: 1.07, view: { w: 1.5, top: 1.2 }, lean: 0.5 },
+  wide: { width: 1.1, top: 0.92, bottom: 0.06, name: 1.07, view: { w: 1.5, top: 1.2 }, lean: 0.5 },
   tall: { width: 1.06, top: 1.6, bottom: 0.5, name: 1.81, view: { w: 1.14, top: 1.96 }, lean: 0 },
 };
 const member = { key: null, beam: 0, beamTo: 0 };

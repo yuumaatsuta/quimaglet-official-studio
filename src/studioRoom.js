@@ -870,7 +870,8 @@ const FURNITURE = [
   // モデルの鍵盤側は +z 向きなので、90° 回して鍵盤を窓（+x）へ向ける。白鍵の黒い点はテクスチャで消してある
   {
     url: 'models/keyboard.glb', x: 1.9, z: -7.4, rotationY: Math.PI / 2, width: 1.25, mirror: true,
-    member: 'keyboard', chip: { x: 1.0, z: -6.95 },
+    // 縦長の画面（スマホ）では楽器が画面の外に出るので、鍵盤の手前の端の前に置き、目を鍵盤の側（右）へ少し回り込ませる
+    member: 'keyboard', chip: { x: 1.0, z: -6.95, narrow: { x: 1.55, z: -6.5, turn: 0.4 } },
   },
   // 左奥のブラウン管のタワーに立てかけたギター（Gretsch の生成モデル。ピックガードのでっぱりは平らにしてある）。
   // 正面（+z）を部屋の手前へ向け、後ろへ傾けて、いちばん下の段のブラウン管にもたせかける
@@ -911,7 +912,8 @@ const FURNITURE = [
   {
     url: 'models/bass-white.glb', x: 1.7, z: -8.36, rotationY: -0.75, rotationX: -0.33, rotationZ: 0.05, width: 0.415,
     mirror: { height: 0.3, strength: 0.3 },
-    member: 'bass', chip: { x: 0.85, z: -7.85 },
+    // 縦長の画面では、ベースの左前に置き、目をベースの正面の側（左）へ少し回り込ませる
+    member: 'bass', chip: { x: 0.85, z: -7.85, narrow: { x: 1.35, z: -7.6, turn: -0.35 } },
   },
   // 宙に浮かぶロボットの頭（Lavvy robot）
   { url: 'models/robot.glb', x: -0.8, z: -D + 4.3, rotationY: 0.35, width: 0.42, float: 2.4, wander: true },
