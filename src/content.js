@@ -160,6 +160,11 @@ function goodsItem(it) {
   return `<li class="goods-item">${img}<div class="goods-text">${status ? `<span class="goods-status ${cls}">${escapeHtml(status)}</span>` : ''}<h3>${title}</h3>${it.price ? `<p class="goods-price">${escapeHtml(it.price)}</p>` : ''}${it.note ? textToHtml(it.note) : ''}</div></li>`;
 }
 
+// メンバーの写真の場所：http で始まらなければサイトの中のファイル（public/）
+export function memberImageUrl(m) {
+  return m.image && !/^(https?:|data:|\/)/.test(m.image) ? `${import.meta.env.BASE_URL}${m.image}` : m.image;
+}
+
 // メンバーのホログラムの表示板の中身。名前とローマ字は立体の文字で映す（memberHolo.js）ので、ここでは読み上げ用だけ
 export function memberHtml(m) {
   const links = String(m.links ?? '')
@@ -168,8 +173,7 @@ export function memberHtml(m) {
     .filter(Boolean)
     .map(([, label, url]) => `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label || url.replace(/^https?:\/\/(www\.)?/, ''))}</a></li>`)
     .join('');
-  // 写真の場所：http で始まらなければサイトの中のファイル（public/）
-  const image = m.image && !/^(https?:|data:|\/)/.test(m.image) ? `${import.meta.env.BASE_URL}${m.image}` : m.image;
+  const image = memberImageUrl(m);
   const no = String(Math.max(1, MEMBERS.indexOf(m) + 1)).padStart(2, '0');
   // 英語の名前は上に浮かぶ立体の文字（memberHolo.js）。表示板には日本語の名前を項目として載せる
   const field = (label, value) => (value ? `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '');

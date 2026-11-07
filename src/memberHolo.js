@@ -201,19 +201,27 @@ export function createMemberHolo(scene) {
 
   let shownFor = null;
   return {
+    // 初めて開くときに止まらないよう、シェーダーを先に組み立てておく（見えない物は組み立てられないので、その間だけ見せる）
+    warm(renderer, camera) {
+      group.visible = true;
+      return renderer
+        .compileAsync(group, camera, scene)
+        .catch(() => {})
+        .finally(() => (group.visible = false));
+    },
     // 名前を描き直す（同じメンバーなら描かない）
     set(member) {
       if (shownFor === member) return;
       shownFor = member;
       draw(member.name ?? '', member.nameEn ?? '');
     },
-    // at: 名前の中心の位置（ワールド）、a: 映り具合 0〜1（出るとき・消えるときの濃さだけに使う）、t: 時間（秒）
-    update(at, a, t) {
+    // at: 名前の中心の位置（ワールド）、a: 映り具合 0〜1（出るとき・消えるときの濃さだけに使う）、t: 時間（秒）、yaw: 向き（ふだんは 0 で正面。カメラを横へ回り込ませたメンバーだけ、その目の方へ向ける）
+    update(at, a, t, yaw = 0) {
       group.visible = a > 0.003 && !!at;
       if (!group.visible) return;
       // 位置・大きさ・厚み・向きは固定。変わるのは濃さと、シェーダーの中の映りの乱れだけ
       group.position.copy(at);
-      group.rotation.set(0, 0, 0);
+      group.rotation.set(0, yaw, 0);
       const g = glitch(t);
       const width = HEIGHT * (CANVAS.w / CANVAS.h);
       shadow.scale.set(width, HEIGHT, 1);

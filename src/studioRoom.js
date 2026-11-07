@@ -885,10 +885,11 @@ const FURNITURE = [
   // 縦長の画面（スマホ）では左の壁の下の方が映らないので、左のタワーの左寄りに、Gretsch と角度を変えて立てかける
   {
     url: 'models/guitar-hb.glb', x: -W / 2 + 0.065, z: -7.85, rotationY: Math.PI / 2, width: 0.4, wall: { y: 0.22 },
-    member: 'hb', chip: { x: -2.0, z: -7.4 },
+    // turn：寄ったときに目を右へ回り込ませる量（窓の半幅に対する割合）。壁に掛けて横を向いたギターを正面寄りから見る
+    member: 'hb', chip: { x: -2.0, z: -7.4, turn: 0.85 },
     narrow: {
       x: -1.95, z: -7.9, rotationY: 0.85, rotationX: -0.24, rotationZ: -0.07, wall: null, mirror: { height: 0.3, strength: 0.3 },
-      chip: { x: -1.65, z: -7.05 },
+      chip: { x: -1.65, z: -7.05, turn: 0.45 },
     },
   },
   // HB の前の床に置いたエフェクターボード（生成モデル）。踏む側（モデルの +z）を部屋の内側へ向け、斜めに置く。
@@ -1036,6 +1037,7 @@ function place(model, item) {
       chip.position.set(at.x, 0, at.z);
       // チップの光の出る向き（楽器の方を少し向く）
       chip.rotation.y = Math.atan2(item.x - at.x, item.z - at.z);
+      chip.userData.turn = at.turn ?? 0;
     };
     put();
     if (item.chip.narrow) addEventListener('resize', put);

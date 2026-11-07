@@ -383,7 +383,7 @@ body:not(.is-holo) .holo-beam {
   /* 走査線を重ねた、上が明るい青・下が紺の半透明 */
   background:
     repeating-linear-gradient(to bottom, rgba(150, 210, 255, 0.07) 0 1px, transparent 1px 3px),
-    linear-gradient(to bottom, rgba(40, 120, 255, 0.3), rgba(16, 44, 140, 0.34) 45%, rgba(6, 14, 60, 0.5));
+    linear-gradient(to bottom, rgba(40, 120, 255, 0.3), rgba(16, 44, 140, 0.4) 45%, rgba(6, 14, 60, 0.58));
   border: 1px solid var(--holo-edge);
   border-top-color: rgba(170, 220, 255, 0.9);
   border-radius: 4px;
@@ -391,7 +391,6 @@ body:not(.is-holo) .holo-beam {
     0 0 24px rgba(60, 140, 255, 0.35),
     inset 0 0 40px rgba(60, 140, 255, 0.18),
     inset 0 1px 0 rgba(200, 230, 255, 0.5);
-  backdrop-filter: blur(3px);
   text-shadow: 0 0 8px rgba(80, 170, 255, 0.55);
   touch-action: pan-y;
   transform: translateX(-50%);
@@ -851,6 +850,47 @@ body.is-news .settings-toggle {
 
 /* ---------- メンバーの紹介（楽器の前のチップの真上に映すホログラムの表示板。memberCard.js。名前は 3D の memberHolo.js） ---------- */
 
+/* ホログラムの中のスクロールバー：細い光の線の上を、光る短い棒が動く（.panel と .member-card） */
+.panel,
+.member-card {
+  scrollbar-gutter: stable;
+}
+.panel::-webkit-scrollbar,
+.member-card::-webkit-scrollbar {
+  width: 10px;
+}
+.panel::-webkit-scrollbar-track,
+.member-card::-webkit-scrollbar-track {
+  margin: 14px 0;
+  background: linear-gradient(rgba(140, 200, 255, 0.28), rgba(140, 200, 255, 0.28)) center / 1px 100% no-repeat;
+}
+.panel::-webkit-scrollbar-thumb,
+.member-card::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(to bottom, #bfe4ff, #5aa8ff) padding-box;
+  box-shadow: 0 0 8px rgba(90, 170, 255, 0.9);
+}
+.panel::-webkit-scrollbar-thumb:hover,
+.member-card::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #e6f4ff, #7cc4ff) padding-box;
+}
+.panel::-webkit-scrollbar-button,
+.member-card::-webkit-scrollbar-button,
+.panel::-webkit-scrollbar-corner,
+.member-card::-webkit-scrollbar-corner {
+  display: none;
+}
+/* ::-webkit-scrollbar の効かないブラウザ（Firefox）は細い色付きのバー */
+@supports not selector(::-webkit-scrollbar) {
+  .panel,
+  .member-card {
+    scrollbar-width: thin;
+    scrollbar-color: #7cc4ff transparent;
+  }
+}
+
 .member-beam {
   position: fixed;
   inset: 0;
@@ -869,7 +909,7 @@ body.is-news .settings-toggle {
   color: var(--holo-fg);
   background:
     repeating-linear-gradient(to bottom, rgba(150, 210, 255, 0.07) 0 1px, transparent 1px 3px),
-    linear-gradient(to top, rgba(40, 120, 255, 0.3), rgba(16, 44, 140, 0.34) 45%, rgba(6, 14, 60, 0.5));
+    linear-gradient(to top, rgba(40, 120, 255, 0.3), rgba(16, 44, 140, 0.4) 45%, rgba(6, 14, 60, 0.58));
   border: 1px solid var(--holo-edge);
   border-bottom-color: rgba(170, 220, 255, 0.9);
   border-radius: 4px;
@@ -877,7 +917,6 @@ body.is-news .settings-toggle {
     0 0 24px rgba(60, 140, 255, 0.35),
     inset 0 0 40px rgba(60, 140, 255, 0.18),
     inset 0 -1px 0 rgba(200, 230, 255, 0.5);
-  backdrop-filter: blur(3px);
   text-shadow: 0 0 8px rgba(80, 170, 255, 0.55);
   touch-action: pan-y;
   container: member / inline-size;
@@ -999,9 +1038,8 @@ body.is-news .settings-toggle {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.72;
-  filter: saturate(0.75) contrast(1.05) brightness(1.08);
-  mix-blend-mode: screen;
+  opacity: 0.7;
+  filter: saturate(0.75) contrast(1.05) brightness(1.1);
 }
 .member-photo::after {
   content: '';

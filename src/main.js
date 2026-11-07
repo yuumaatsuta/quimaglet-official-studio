@@ -3,7 +3,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdaptiveResolution } from './adaptiveResolution.js';
 import { CONFIG } from './config.js';
 import { createAboutView } from './aboutView.js';
-import { GOODS, MEMBERS, NEWS_LIST, SECTIONS, loadContent, memberHtml } from './content.js';
+import { GOODS, MEMBERS, NEWS_LIST, SECTIONS, loadContent, memberHtml, memberImageUrl } from './content.js';
 import { createGoodsPaper } from './goodsPaper.js';
 import { createHotspots, isPickable, isShown } from './hotspots.js';
 import { createInput, isTouchDevice } from './input.js';
@@ -393,6 +393,8 @@ function updateZoom(dt) {
   const k = ease(zoom.amount);
   const fw = zoom.focusWin ?? win;
   for (const key of ['cx', 'cy', 'cz', 'halfW', 'halfH']) shownWin[key] = THREE.MathUtils.lerp(win[key], fw[key], k);
+  // eyeX：目だけを窓の中心から横へずらす（窓はそのままで、横を向いた物を正面寄りから見る。メンバーの HB）
+  shownWin.eyeX = THREE.MathUtils.lerp(win.eyeX ?? 0, fw.eyeX ?? 0, k);
   return k;
 }
 
@@ -786,9 +788,23 @@ const MEMBER = {
 const member = { key: null, beam: 0, beamTo: 0 };
 const memberCard = createMemberCard({ onClose: () => zoomOut() });
 const memberHolo = createMemberHolo(scene);
+// 開いた瞬間に重くならないよう、名前のシェーダーと写真を先に用意しておく（起動が落ち着いてから）
+setTimeout(() => {
+  memberHolo.warm(renderer, camera);
+  for (const info of MEMBERS) {
+    const url = memberImageUrl(info);
+    if (!url) continue;
+    const img = new Image();
+    img.src = url;
+    img.decode?.().catch(() => {});
+  }
+}, 1500);
 const chipPos = new THREE.Vector3();
 const memberAt = new THREE.Vector3();
 const memberP = new THREE.Vector3();
+const layoutCam = new THREE.PerspectiveCamera(50, 1, view.near, view.far);
+const layoutEye = new THREE.Vector3();
+let memberYaw = 0;
 
 function memberFor(key) {
   return MEMBERS.find((m) => m.instrument === key && m.name) ?? null;
@@ -796,15 +812,18 @@ function memberFor(key) {
 const memberLayout = () => (innerWidth / innerHeight < 1 ? MEMBER.tall : MEMBER.wide);
 
 // チップの真上のホログラムが、戻るボタンの上の空きに来る窓。横は楽器の側へ少し寄せ、楽器が表示板の横に見えるようにする
-function memberWindow(chip, instrument) {
+function memberWindow(chipObj, instrument) {
   const L = memberLayout();
+  const chip = chipObj.getWorldPosition(chipPos);
   const aspect = innerWidth / innerHeight;
   const usable = Math.max(0.4, (innerHeight - MEMBER.backButton) / innerHeight);
   const low = -0.06; // チップの下に少し床を見せる
   const halfH = Math.max((L.view.top - low) / 2 / usable, L.view.w / 2 / aspect);
   const b = (MEMBER.backButton * 2 * halfH) / innerHeight;
   const lean = THREE.MathUtils.clamp((instrument.x - chip.x) * L.lean, -0.6, 0.6);
-  return { cx: chip.x + lean, cy: (L.view.top + low) / 2 - b / 2, cz: chip.z + MEMBER.front, halfW: halfH * aspect, halfH };
+  // turn（studioRoom.js のチップの設定）：楽器が横を向いているとき、目をその正面の側へ回り込ませる
+  const eyeX = (chipObj.userData.turn ?? 0) * Math.min(1, halfH * aspect);
+  return { cx: chip.x + lean, cy: (L.view.top + low) / 2 - b / 2, cz: chip.z + MEMBER.front, halfW: halfH * aspect, halfH, eyeX };
 }
 
 function openMember(key) {
@@ -826,7 +845,7 @@ function openMember(key) {
   member.beamTo = 0;
   memberHolo.set(info);
   // 縦横が変わったら（スマホを回したら）置き方の変わったチップへ寄り直す
-  zoomToObject(m.shown(), { window: () => memberWindow(m.chip().getWorldPosition(chipPos), m.shown().userData.instrumentAt) });
+  zoomToObject(m.shown(), { window: () => memberWindow(m.chip(), m.shown().userData.instrumentAt) });
   zoomBack.hidden = false;
 }
 
@@ -836,9 +855,18 @@ function closeMember() {
   memberCard.close();
 }
 
+// 表示板：チップの真上の、部屋の中の板の四隅を画面に写す
+function cardRect(c, L, cam) {
+  const tl = toScreen(memberP.set(c.x - L.width / 2, L.top, c.z), cam);
+  const br = toScreen(memberP.set(c.x + L.width / 2, L.bottom, c.z), cam);
+  const width = Math.min(br.x - tl.x, innerWidth - 24);
+  const left = Math.min(Math.max((tl.x + br.x) / 2 - width / 2, 12), innerWidth - 12 - width);
+  return { left, top: tl.y, width, maxHeight: Math.max(120, br.y - tl.y) };
+}
+
 // 部屋の中の点を画面の画素へ
-function toScreen(v) {
-  v.project(camera);
+function toScreen(v, cam = camera) {
+  v.project(cam);
   return { x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight, front: v.z < 1 };
 }
 
@@ -868,13 +896,19 @@ function updateMember(dt, t) {
     // 名前の立体の文字（表示板が映ってから浮かび上がる）
     const nameA = memberCard.isOpen || !member.key ? Math.max(0, (member.beam - 0.5) * 2) : 0;
     // 名前はちらつかせない（濃さが変わると揺れて見える）。映りの乱れは memberHolo の中で、たまにだけ
-    memberHolo.update(memberAt.set(c.x, L.name, c.z), nameA, t);
-    // 表示板：チップの真上の、部屋の中の板の四隅を画面に写す
-    const tl = toScreen(memberP.set(c.x - L.width / 2, L.top, c.z));
-    const br = toScreen(memberP.set(c.x + L.width / 2, L.bottom, c.z));
-    const width = Math.min(br.x - tl.x, innerWidth - 24);
-    const left = Math.min(Math.max((tl.x + br.x) / 2 - width / 2, 12), innerWidth - 12 - width);
-    memberCard.place({ left, top: tl.y, width, maxHeight: Math.max(120, br.y - tl.y) });
+    // 寄り終えたときの見え方（見回しなし）。表示板の中身はこの大きさで 1 度だけ組み、寄る途中や見回しで変わる分は拡大縮小だけで合わせる
+    // （毎フレーム幅を変えると、そのたびに文章の折り返しを組み直して重い）
+    let layout = null;
+    const fw = member.key && zoom.focusWin;
+    if (fw) {
+      layoutEye.set(fw.cx + (fw.eyeX ?? 0), fw.cy, fw.cz + Math.max(fw.halfW, fw.halfH) * view.distanceFactor);
+      updateWindowCamera(layoutCam, layoutEye, fw);
+      layout = cardRect(c, L, layoutCam);
+      // 目を回り込ませたとき（eyeX）は、名前もその目の方へ向ける（向きは開いている間ずっと同じ）
+      memberYaw = fw.eyeX ? Math.atan2(layoutEye.x - c.x, layoutEye.z - c.z) : 0;
+    }
+    memberHolo.update(memberAt.set(c.x, L.name, c.z), nameA, t, memberYaw);
+    memberCard.place(cardRect(c, L, camera), layout);
     const e = toScreen(lit.userData.emitter.getWorldPosition(memberP));
     if (e.front) at = e;
   } else {
@@ -963,17 +997,23 @@ function updateHologram(dt, t) {
 }
 
 // 投影口からパネルの上辺へ広がる光。3D の上に重ねた 2D の canvas に描く
+// 光を出していない間は、画面いっぱいの canvas を毎フレーム消し直さない（beamDrawn：何か描いてあるか）
+let beamDrawn = false;
 function drawBeam(flicker) {
   const w = innerWidth;
   const h = innerHeight;
-  const dpr = Math.min(devicePixelRatio, 2);
+  const dpr = 1; // ぼんやりした光なので等倍で十分
   if (beamCanvas.width !== Math.round(w * dpr) || beamCanvas.height !== Math.round(h * dpr)) {
     beamCanvas.width = Math.round(w * dpr);
     beamCanvas.height = Math.round(h * dpr);
+    beamDrawn = false;
   }
+  const off = !room.robot || holo.beam === 0 || panelEl.hidden;
+  if (off && !beamDrawn) return;
   beamCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   beamCtx.clearRect(0, 0, w, h);
-  if (!room.robot || holo.beam === 0 || panelEl.hidden) return;
+  beamDrawn = false;
+  if (off) return;
 
   const p = room.robot.emitter.getWorldPosition(emitterPos).project(camera);
   if (p.z > 1) return;
@@ -982,6 +1022,7 @@ function drawBeam(flicker) {
   const r = panelEl.getBoundingClientRect();
   if (r.top <= ey) return;
   const a = holo.beam * flicker;
+  beamDrawn = true;
 
   beamCtx.globalCompositeOperation = 'lighter';
   const fill = beamCtx.createLinearGradient(0, ey, 0, r.top);
@@ -1048,7 +1089,7 @@ renderer.setAnimationLoop((now) => {
   // ズーム中は見回しを控えめにする
   const look = motion * (1 - 0.6 * k);
   eyeTarget.set(
-    w.cx + input.x * w.halfW * view.offsetX * look,
+    w.cx + (w.eyeX ?? 0) + input.x * w.halfW * view.offsetX * look,
     w.cy + input.y * w.halfH * view.offsetY * look,
     w.cz + Math.max(w.halfW, w.halfH) * view.distanceFactor,
   );

@@ -18,6 +18,13 @@ export function createMemberCard({ onClose }) {
   const ctx = beam.getContext('2d');
 
   let closing = null;
+  let size = null; // 中身を組んだ幅と高さの上限
+  card.style.left = card.style.top = '0px';
+  card.style.transformOrigin = '0 0';
+  // 板の画面上の四角（place で決めた位置と、ResizeObserver で測った高さ）。毎フレーム getBoundingClientRect で測ると、そのたびにレイアウトが走って重い
+  const rect = { left: 0, top: 0, width: 0, height: 0 };
+  new ResizeObserver(() => (rect.height = card.offsetHeight)).observe(card);
+  let drawn = false; // 光の canvas に何か描いてあるか（空のときは消し直さない）
 
   return {
     get isOpen() {
@@ -32,13 +39,25 @@ export function createMemberCard({ onClose }) {
       card.scrollTop = 0;
       card.querySelector('.panel-close').focus({ preventScroll: true });
     },
-    // 画面上の位置と大きさ（px）。top から下へ、中身の高さだけ伸びる（maxHeight を超えるときだけ板の中で送る）
-    place({ left, top, width, maxHeight }) {
+    // now：いま映す画面上の位置と大きさ（px）、layout：中身を組む大きさ（寄り終えたときの幅と高さの上限。省くと前のまま）。
+    // 板は layout の幅で 1 度だけ組み、now に合わせて動かす・拡大縮小する（transform だけなので、文章の組み直しが起きない）。
+    // top から下へ、中身の高さだけ伸びる（maxHeight を超えるときだけ板の中で送る）
+    place(now, layout) {
       const st = card.style;
-      st.left = `${Math.round(left)}px`;
-      st.top = `${Math.round(top)}px`;
-      st.width = `${Math.round(width)}px`;
-      st.maxHeight = `${Math.round(maxHeight)}px`;
+      const lay = layout ?? size ?? now;
+      const w = Math.round(lay.width);
+      const mh = Math.round(lay.maxHeight);
+      if (!size || size.width !== w || size.maxHeight !== mh) {
+        size = { width: w, maxHeight: mh };
+        st.width = `${w}px`;
+        st.maxHeight = `${mh}px`;
+      }
+      let k = now.width / w;
+      if (Math.abs(k - 1) < 0.04) k = 1; // ほぼ同じなら等倍のまま（文字がにじまない）
+      const x = Math.round(now.left + now.width / 2 - (w * k) / 2);
+      const y = Math.round(now.top);
+      st.transform = `translate(${x}px, ${y}px)${k === 1 ? "" : ` scale(${k.toFixed(4)})`}`;
+      Object.assign(rect, { left: x, top: y, width: w * k, k });
     },
     close() {
       if (card.hidden || closing) return;
@@ -52,14 +71,19 @@ export function createMemberCard({ onClose }) {
     draw(emitter, a) {
       const w = innerWidth;
       const h = innerHeight;
-      const dpr = Math.min(devicePixelRatio, 2);
+      // ぼんやりした光なので、高精細な画面でも等倍で描く（画面いっぱいの canvas を毎フレーム描き直すので）
+      const dpr = 1;
       if (beam.width !== Math.round(w * dpr) || beam.height !== Math.round(h * dpr)) {
         beam.width = Math.round(w * dpr);
         beam.height = Math.round(h * dpr);
+        drawn = false;
       }
+      const empty = !emitter || a <= 0.002;
+      if (empty && !drawn) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      if (!emitter || a <= 0.002) return;
+      drawn = !empty;
+      if (empty) return;
       const { x: ex, y: ey } = emitter;
 
       // 出口のにじみ（カードが出る前から光らせる）
@@ -76,7 +100,7 @@ export function createMemberCard({ onClose }) {
         return;
       }
       // カードのいちばん近い辺へ扇形に広げる（下の辺が出口より上にあれば下の辺、なければ横の辺）
-      const r = card.getBoundingClientRect();
+      const r = { left: rect.left, right: rect.left + rect.width, top: rect.top, bottom: rect.top + rect.height * (rect.k ?? 1) };
       let p1;
       let p2;
       if (r.bottom < ey - 12) {
