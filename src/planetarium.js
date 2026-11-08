@@ -88,6 +88,8 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
   const glowLight = new THREE.PointLight(FAINT, 0, 3, 2);
   glowLight.position.copy(ball.position);
   moon.add(glowLight);
+  // 夜にしか点かない光。点いていない間は描く計算から外す（main.js の lightGate。夜になったら裏で描き方を用意しておく）
+  glowLight.userData.gate = 'sky';
 
   // ---------- 星を映すプロジェクター（カメラの後ろ）と、手元の明かり（カメラの真上） ----------
 
@@ -105,9 +107,11 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
   });
   projector.shadow.camera.near = 0.2;
   projector.shadow.camera.far = 30;
+  projector.userData.gate = 'sky';
   group.add(projector, projector.target);
 
   const fill = new THREE.SpotLight(SKY.fillColor, 0, 0, 0.62, 0.9, 0);
+  fill.userData.gate = 'sky';
   group.add(fill, fill.target);
 
   // ---------- 月の置き場所 ----------
@@ -266,6 +270,9 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
     },
     get active() {
       return night && drop > 0.6;
+    },
+    get night() {
+      return night;
     },
     // 星空を映しているか（main.js でシャッターを閉める）
     get on() {

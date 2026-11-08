@@ -271,6 +271,8 @@ export async function buildStudioRoom(onProgress, contentReady) {
   menuLamp.position.set((tubeX0 + tubeX1) / 2, tubeY - 0.05, tubeZ - 0.04);
   menuLamp.lookAt(-0.2, 4.1, -D);
   group.add(menuLamp);
+  // 昼の晴れた日は消えている。消えている間は描く計算から外す（面の光は画素ごとの計算が重い。main.js の lightGate）
+  lamp.userData.gate = menuLamp.userData.gate = 'lamps';
   pipe([tubeX0 - 0.12, tubeY, tubeZ], [tubeX0, tubeY, tubeZ], 0.065);
   pipe([tubeX1, tubeY, tubeZ], [tubeX1 + 0.14, tubeY, tubeZ], 0.065);
   pipe([tubeX0 - 0.1, tubeY + 0.1, tubeZ], [tubeX1 + 0.1, tubeY + 0.1, tubeZ], 0.012);

@@ -48,6 +48,11 @@ function onBootProgress(p) {
 // 文章とお知らせ（backend/ の API。読めなければ public/content.json）。
 // 部屋のモデルと同時に読み始め、壁のメニューとお知らせを作る直前に待つ（studioRoom.js）
 const contentReady = loadContent().then(() => performance.mark('q:content'));
+// 今の天気も読み込みと並べて先に取る。シェーダーを組み立てる前に昼夜・天気（＝点く光）を決めておけば、
+// 起動の後に光の組み合わせが変わって組み立て直すことがない（?weather=… の指定があればそれを使う）
+const weatherQuery = new URLSearchParams(location.search);
+const liveWeatherReady =
+  CONFIG.weatherPanel && !weatherQuery.get('weather') ? fetchCurrentWeather().catch(() => null) : Promise.resolve(null);
 const room = await loadRoom(CONFIG.modelUrl, onBootProgress, contentReady);
 performance.mark('q:room');
 scene.add(room.group);
@@ -68,8 +73,13 @@ function captureEnvironment(blend = false) {
   if (!room.probe) return;
   const open = shutterOpen;
   setShutter(1, false);
+  // 床の映り込みは隠して撮る（向きごとに映り込みを描き直すことになり重い。周囲の画像にはほとんど写らない）
+  const mirrors = [];
+  scene.traverse((o) => o.userData.mirror && o.visible && mirrors.push(o));
+  for (const o of mirrors) o.visible = false;
   cubeCamera.position.copy(room.probe);
   cubeCamera.update(renderer, scene);
+  for (const o of mirrors) o.visible = true;
   setShutter(open, false);
   envMixer.capture(cubeTarget.texture, blend);
   envBase = room.hasLights ? 0.5 : 1.0;
@@ -194,12 +204,19 @@ function toggleShutter() {
 // ---------- 天気 ----------
 
 let weather = null;
+// 最初の天気：URL の指定 → 取れていれば今の天気（少しだけ待つ）→ 晴れの昼
+const fixedWeather = weatherQuery.get('weather');
+const earlyWeather = await Promise.race([liveWeatherReady, new Promise((res) => setTimeout(() => res(null), 1500))]);
+const initialWeather =
+  fixedWeather && KINDS[fixedWeather]
+    ? weatherParams(fixedWeather, !weatherQuery.has('night'))
+    : (earlyWeather?.params ?? weatherParams('clear', true));
 if (room.weatherRig) {
   weather = createWeather({
     scene,
     renderer,
     rig: room.weatherRig,
-    initial: weatherParams('clear', true),
+    initial: initialWeather,
     onSettled: () => captureEnvironment(true),
   });
 }
@@ -208,8 +225,8 @@ if (room.weatherRig) {
 // まとめて渡すと GPU 側で並べて組み立て、待つ間も読み込み画面は動く。
 // 周囲を撮るとき（描き先が画像）と画面に描くときでは、同じ材質でも別のシェーダーになるので両方作る。
 // 組み立ての進み具合はわからないので、表示は 99% へ向けて少しずつ進める
-// 明るさ 0 の光は描く計算から外す（shadowCache.js）。起動時に 0 の光は、シェーダーを組み立てる前に外しておく
-const lightGate = createLightGate(renderer, scene, camera);
+// プラネタリウムの光と天井の蛍光灯は、点いていない間は描く計算から外す（shadowCache.js）。シェーダーを組み立てる前に外しておく
+const lightGate = createLightGate(renderer, scene, camera, { targets: [cubeTarget] });
 onBootProgress(1);
 const creep = setInterval(() => {
   bootShown += (99 - bootShown) * 0.25;
@@ -233,12 +250,6 @@ async function precompile() {
   jobs.push(renderer.compileAsync(scene, cubeCamera.children[0]));
   renderer.setRenderTarget(null);
   jobs.push(renderer.compileAsync(scene, camera));
-  // 日差しが 0 の間（シャッターを閉めている・夜）は日差しを外すので、その形のシェーダーも作っておく
-  const sunLights = [];
-  scene.traverseVisible((o) => o.isLight && o.castShadow && sunLights.push(o));
-  for (const l of sunLights) l.visible = false;
-  jobs.push(renderer.compileAsync(scene, camera));
-  for (const l of sunLights) l.visible = true;
   try {
     await Promise.all(jobs);
   } catch (e) {
@@ -272,10 +283,13 @@ if (weather) {
       })
     : null;
 
+  let firstLive = true;
   async function applyLiveWeather() {
     weatherPanel?.setStatus(`${LOCATION.name}の天気を取得中…`);
     try {
-      const now = await fetchCurrentWeather();
+      const early = firstLive ? await liveWeatherReady : null;
+      firstLive = false;
+      const now = early ?? (await fetchCurrentWeather());
       if (weatherPanel && !weatherPanel.live) return;
       setWeather(now.params);
       const time = now.time.slice(11, 16);
@@ -798,9 +812,8 @@ const MEMBER = {
 const member = { key: null, beam: 0, beamTo: 0 };
 const memberCard = createMemberCard({ onClose: () => zoomOut() });
 const memberHolo = createMemberHolo(scene);
-// 開いた瞬間に重くならないよう、名前のシェーダーと写真を先に用意しておく（起動が落ち着いてから）
+// 開いた瞬間に重くならないよう、写真を先に読んでおく。名前のシェーダーは起動が落ち着いてから（onSettled）
 setTimeout(() => {
-  memberHolo.warm(renderer, camera);
   for (const info of MEMBERS) {
     const url = memberImageUrl(info);
     if (!url) continue;
@@ -1088,6 +1101,11 @@ const resolution = fixedRes
 
 // 日差しの影は、影を落とす物が動いたときだけ描き直す（shadowCache.js）
 const shadowCache = createShadowCache(renderer, scene);
+let lightsPrepared = false;
+let settled = false;
+let settledFor = 0;
+// 光を切り替えたら、すぐ影を描き直す（影を描くシェーダーも光の数で変わる。裏の組み立てが終わった今なら、すぐ組み立てられる）
+lightGate.onSwitch = () => shadowCache.invalidate();
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop((now) => {
@@ -1130,6 +1148,21 @@ renderer.setAnimationLoop((now) => {
   // ほかのメニューを開いている（呼んでいる・ズームしている）間は、お知らせのロボットを画面の外へはけさせる
   // （お知らせを読んでいる間は、newsProjector.read で映し続ける）
   room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen || goods.open);
+  // 起動が落ち着いたら（シャッターが開き切って少ししたら）、あとで使うシェーダーを裏で用意する。
+  // 裏で組み立てている間に、ほかのシェーダー（シャッターが動く間の影など）をその場で組み立てると、裏の分が全部終わるまで待たされて画面が止まるので、
+  // 動きの多い起動の間は始めない
+  if (!settled && shutterProgress === shutterTarget && t > 4) {
+    settledFor += dt;
+    if (settledFor > 2) {
+      settled = true;
+      memberHolo.warm(renderer, camera);
+    }
+  }
+  // 夜なら、プラネタリウムの光を点けた形のシェーダーを用意しておく（月を押したときに止まらないように）
+  if (settled && room.planetarium?.night && !lightsPrepared) {
+    lightsPrepared = true;
+    lightGate.prepare('sky');
+  }
   lightGate.update(dt);
   shadowCache.update();
   if (perf && renderer.shadowMap.needsUpdate) perf.shadowUpdates = (perf.shadowUpdates ?? 0) + 1;

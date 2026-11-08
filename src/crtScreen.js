@@ -185,26 +185,82 @@ export function crtScreenMaterial({ mode = 'video', seed = 0, aspect = 4 / 3 } =
 
 // 画面の範囲に格子を張り、各点から奥へ光線を飛ばしてガラス面の位置を拾う
 function screenGeometry(model, rect, segX = 16, segY = 12) {
+  // 画面の格子の点ごとに、手前（+z）からまっすぐ奥へ見て最初に当たる面の奥行きを求める。
+  // 点ごとに光線を飛ばすとモデルの全ての三角形を毎回調べることになり重い（起動で 2 秒ほどかかっていた）ので、
+  // 三角形を 1 回ずつ見て、その三角形の上に乗る格子の点だけ奥行きを計算し、いちばん手前の値を残す
   model.updateMatrixWorld(true);
   const inverse = model.matrixWorld.clone().invert();
-  const raycaster = new THREE.Raycaster();
-  const origin = new THREE.Vector3();
-  const dir = new THREE.Vector3(0, 0, -1).transformDirection(model.matrixWorld);
+  const nx = segX + 1;
+  const ny = segY + 1;
+  const xs = (i) => THREE.MathUtils.lerp(rect.x0, rect.x1, i / segX);
+  const ys = (j) => THREE.MathUtils.lerp(rect.y0, rect.y1, 1 - j / segY); // PlaneGeometry の並び（上の行から）
+  const depth = new Float32Array(nx * ny).fill(-Infinity);
+  const xMin = Math.min(rect.x0, rect.x1);
+  const xMax = Math.max(rect.x0, rect.x1);
+  const yMin = Math.min(rect.y0, rect.y1);
+  const yMax = Math.max(rect.y0, rect.y1);
+  const toLocal = new THREE.Matrix4();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  model.traverse((mesh) => {
+    if (!mesh.isMesh || mesh.userData.isScreen) return;
+    toLocal.multiplyMatrices(inverse, mesh.matrixWorld);
+    const position = mesh.geometry.attributes.position;
+    const index = mesh.geometry.index;
+    const frontOnly = mesh.material.side === THREE.FrontSide; // 光線と同じく、裏を向いた面には当たらない
+    const count = index ? index.count : position.count;
+    for (let t = 0; t < count; t += 3) {
+      const i0 = index ? index.getX(t) : t;
+      const i1 = index ? index.getX(t + 1) : t + 1;
+      const i2 = index ? index.getX(t + 2) : t + 2;
+      a.fromBufferAttribute(position, i0).applyMatrix4(toLocal);
+      b.fromBufferAttribute(position, i1).applyMatrix4(toLocal);
+      c.fromBufferAttribute(position, i2).applyMatrix4(toLocal);
+      if (a.z > 2 && b.z > 2 && c.z > 2) continue; // 光線の出発点（z = 2）より手前
+      const bx0 = Math.min(a.x, b.x, c.x);
+      const bx1 = Math.max(a.x, b.x, c.x);
+      const by0 = Math.min(a.y, b.y, c.y);
+      const by1 = Math.max(a.y, b.y, c.y);
+      if (bx1 < xMin || bx0 > xMax || by1 < yMin || by0 > yMax) continue;
+      // 奥行きの向き（xy に写したときの回り方）。0 なら真横を向いた面
+      const area = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+      if (Math.abs(area) < 1e-12 || (frontOnly && area < 0)) continue;
+      // この三角形の外枠に入る格子の点
+      const i0x = Math.max(0, Math.ceil(((bx0 - rect.x0) / (rect.x1 - rect.x0)) * segX - 1e-9));
+      const i1x = Math.min(segX, Math.floor(((bx1 - rect.x0) / (rect.x1 - rect.x0)) * segX + 1e-9));
+      const lo = Math.min(i0x, i1x);
+      const hi = Math.max(i0x, i1x);
+      for (let i = Math.max(0, lo - 1); i <= Math.min(segX, hi + 1); i++) {
+        const x = xs(i);
+        if (x < bx0 || x > bx1) continue;
+        for (let j = 0; j < ny; j++) {
+          const y = ys(j);
+          if (y < by0 || y > by1) continue;
+          // 重心座標で三角形の内側か調べ、内側なら奥行きを補間する
+          const w1 = ((x - a.x) * (c.y - a.y) - (c.x - a.x) * (y - a.y)) / area;
+          const w2 = ((b.x - a.x) * (y - a.y) - (x - a.x) * (b.y - a.y)) / area;
+          const w0 = 1 - w1 - w2;
+          if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
+          const z = w0 * a.z + w1 * b.z + w2 * c.z;
+          const k = j * nx + i;
+          if (z <= 2 && z > depth[k]) depth[k] = z;
+        }
+      }
+    }
+  });
 
   const geometry = new THREE.PlaneGeometry(1, 1, segX, segY);
   const pos = geometry.attributes.position;
-  const p = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    const x = THREE.MathUtils.lerp(rect.x0, rect.x1, pos.getX(i) + 0.5);
-    const y = THREE.MathUtils.lerp(rect.y0, rect.y1, pos.getY(i) + 0.5);
-    origin.set(x, y, 2).applyMatrix4(model.matrixWorld);
-    raycaster.set(origin, dir);
-    const hit = raycaster.intersectObject(model, true)[0];
-    if (hit) p.copy(hit.point).applyMatrix4(inverse);
-    else p.set(x, y, 0);
-    // ガラスとちらつかないよう、ほんの少し手前に浮かせる
-    pos.setXYZ(i, x, y, p.z + 0.006);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      const z = depth[k] === -Infinity ? 0 : depth[k];
+      // ガラスとちらつかないよう、ほんの少し手前に浮かせる
+      pos.setXYZ(k, xs(i), ys(j), z + 0.006);
+    }
   }
   geometry.computeVertexNormals();
   return geometry;
 }
+

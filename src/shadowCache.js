@@ -14,6 +14,10 @@ export function createShadowCache(renderer, scene) {
   let shown = new Uint8Array(0);
   const lightState = new Map(); // 影を落とす光 → 点いているか
   let frame = 0;
+  // 動き続けている間（シャッターの開け閉めなど）は、描き直しを 1 秒に 15 回までにする。止まったら最後の形を必ず描く
+  const MIN_GAP = 1000 / 15;
+  let lastDraw = -Infinity;
+  let pending = false;
 
   const visibleInTree = (o) => {
     for (; o; o = o.parent) if (!o.visible) return false;
@@ -68,7 +72,13 @@ export function createShadowCache(renderer, scene) {
           changed = true;
         }
       }
-      if (changed) shadowMap.needsUpdate = true;
+      if (changed) pending = true;
+      const now = performance.now();
+      if (pending && (now - lastDraw >= MIN_GAP || !changed)) {
+        shadowMap.needsUpdate = true;
+        pending = false;
+        lastDraw = now;
+      }
     },
     // 外から描き直しを頼む（物を急に置き換えたときなど）
     invalidate() {
@@ -77,59 +87,106 @@ export function createShadowCache(renderer, scene) {
   };
 }
 
-// 明るさが 0 の光を、描く計算から外す（見えない光も、画面の全ての点で計算されて重い）。
-// 光の数が変わると描き方（シェーダー）を組み直すことになるので、先に裏で組み立て（compileAsync）、できてから切り替える。
-// 一度組んだ描き方は残るので、2 回目からの切り替えはすぐ済む
-export function createLightGate(renderer, scene, camera, { offDelay = 1 } = {}) {
-  const state = new Map(); // 光 → { busy, off（0 のままの秒数） }
+// 組み立て中のシェーダーが全部できあがるまで待つ（GPU 側で並べて組み立てている間は、画面は止まらない）。
+// compileAsync の待ち方は、待っている間に描いたフレームで「できている」と判定されてしまうことがあり、
+// できる前のシェーダーで描いて画面が数秒止まっていた。ここでは renderer の全てのシェーダーを見て待つ
+export function allReady(renderer) {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (renderer.info.programs.every((p) => p.isReady())) resolve();
+      else setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
+// めったに変わらない光（userData.gate に組の名前を付けた光。プラネタリウムの光、天井の蛍光灯）を、点いていない間は描く計算から外す。
+// 光の数が変わると、全ての材質の描き方（シェーダー）を組み直すことになる。天気やシャッターで細かく明るさが変わる光まで外すと、
+// 組み合わせごとに組み直しが起きて重くなる（起動直後に 80 本ほど組み立てていた）ので、外すのは決まった光だけにし、組ごとにまとめて切り替える。
+// 切り替えるときは、画面に描く形と、画像に描く形（床の映り込み・周囲の撮影）の両方を裏で組み立て、全部できてから切り替える
+//   targets: 画像に描くときの描き先（main.js の cubeTarget）
+export function createLightGate(renderer, scene, camera, { offDelay = 1, targets = [] } = {}) {
+  const groups = new Map(); // 組の名前 → { lights, shown, off }
+  let busy = false;
   let frame = 0;
 
   function collect() {
     scene.traverse((o) => {
-      if (o.isLight && !state.has(o)) state.set(o, { busy: false, off: 0 });
+      const name = o.isLight && o.userData.gate;
+      if (!name) return;
+      if (!groups.has(name)) groups.set(name, { lights: new Set(), shown: true, off: 0 });
+      groups.get(name).lights.add(o);
+    });
+  }
+  const setAll = (g, v) => {
+    for (const l of g.lights) l.visible = v;
+  };
+  // いまの光の点き方で、画面用と画像用の描き方を組み立てる
+  function compileAll() {
+    const prev = renderer.getRenderTarget();
+    for (const t of [null, ...targets]) {
+      try {
+        renderer.setRenderTarget(t);
+        renderer.compile(scene, camera);
+      } catch (e) {
+        // 組み立てられなかった分は、描くときに組み立てる
+      }
+    }
+    renderer.setRenderTarget(prev);
+  }
+  function switchTo(g, visible) {
+    busy = true;
+    setAll(g, visible);
+    compileAll();
+    setAll(g, g.shown);
+    allReady(renderer).then(() => {
+      g.shown = visible;
+      setAll(g, visible);
+      busy = false;
+      g.off = 0;
+      gate.onSwitch?.();
     });
   }
 
-  function switchTo(light, s, visible) {
-    s.busy = true;
-    const prev = light.visible;
-    light.visible = visible;
-    let job;
-    try {
-      job = renderer.compileAsync(scene, camera);
-    } catch (e) {
-      job = Promise.resolve();
-    }
-    light.visible = prev;
-    job
-      .catch(() => {})
-      .then(() => {
-        light.visible = visible;
-        s.busy = false;
-        s.off = 0;
-      });
-  }
-
-  return {
-    // 起動時：いま 0 の光を先に外しておく（シェーダーを最初からその形で組み立てる）
+  const gate = {
+    onSwitch: null, // 切り替えた後に呼ぶ（main.js：影を描き直す）
+    // 起動時：全部 0 の組は先に外しておく（シェーダーを最初からその形で組み立てる）
     prime() {
       collect();
-      for (const light of state.keys()) if (light.intensity <= 1e-4) light.visible = false;
+      for (const g of groups.values()) {
+        if ([...g.lights].every((l) => l.intensity <= 1e-4)) {
+          g.shown = false;
+          setAll(g, false);
+        }
+      }
+    },
+    // その組を点けた形の描き方を、裏で組み立てておく（夜になったときのプラネタリウムなど）
+    prepare(name) {
+      collect();
+      const g = groups.get(name);
+      if (!g || g.shown || busy) return;
+      setAll(g, true);
+      compileAll();
+      setAll(g, false);
+      // できあがるまでは、ほかの切り替えをしない（裏の組み立てに、新しい組み立てを重ねない）
+      busy = true;
+      allReady(renderer).then(() => (busy = false));
     },
     update(dt) {
       if (frame++ % 120 === 0) collect();
-      for (const [light, s] of state) {
-        if (s.busy) continue;
-        const want = light.intensity > 1e-4;
-        if (want && !light.visible) switchTo(light, s, true);
-        else if (!want && light.visible) {
+      if (busy) return;
+      for (const g of groups.values()) {
+        const want = [...g.lights].some((l) => l.intensity > 1e-4);
+        if (want && !g.shown) return switchTo(g, true);
+        if (!want && g.shown) {
           // しばらく 0 のままなら外す（ちらつきで点いたり消えたりするたびに組み直さないように）
-          s.off += dt;
-          if (s.off > offDelay) switchTo(light, s, false);
-        } else s.off = 0;
+          g.off += dt;
+          if (g.off > offDelay) return switchTo(g, false);
+        } else g.off = 0;
       }
     },
   };
+  return gate;
 }
 
 // 日差しの当たっている所にだけ落ちる、ロボットのやわらかい影。

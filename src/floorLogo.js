@@ -464,6 +464,7 @@ void main() {
   const clear = new THREE.Color();
   let frame = 0;
   const lastEye = new THREE.Vector3(Infinity, 0, 0);
+  plane.userData.mirror = true; // 周囲を撮るとき（main.js の captureEnvironment）は隠す
   plane.onBeforeRender = (renderer, scene, camera) => {
     // 照明も映り込みの描画に入れる（照明が増えたときのため、ときどき数え直す）
     if (frame++ % 120 === 0) scene.traverse((o) => o.isLight && o.layers.enable(MIRROR.layer));
