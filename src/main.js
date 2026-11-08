@@ -15,6 +15,7 @@ import { KINDS, LOCATION, fetchCurrentWeather, weatherParams } from './weather.j
 import { createWeatherPanel } from './weatherPanel.js';
 import { createWeather } from './weatherScene.js';
 import { fitWindow, updateWindowCamera } from './windowCamera.js';
+import { createLightGate, createShadowCache } from './shadowCache.js';
 
 if (isTouchDevice()) document.documentElement.classList.add('is-touch');
 
@@ -207,6 +208,8 @@ if (room.weatherRig) {
 // まとめて渡すと GPU 側で並べて組み立て、待つ間も読み込み画面は動く。
 // 周囲を撮るとき（描き先が画像）と画面に描くときでは、同じ材質でも別のシェーダーになるので両方作る。
 // 組み立ての進み具合はわからないので、表示は 99% へ向けて少しずつ進める
+// 明るさ 0 の光は描く計算から外す（shadowCache.js）。起動時に 0 の光は、シェーダーを組み立てる前に外しておく
+const lightGate = createLightGate(renderer, scene, camera);
 onBootProgress(1);
 const creep = setInterval(() => {
   bootShown += (99 - bootShown) * 0.25;
@@ -224,11 +227,18 @@ performance.mark('q:env');
 
 async function precompile() {
   setShutter(1, false); // 開いたときにだけ見える物も含める
+  lightGate.prime();
   const jobs = [];
   renderer.setRenderTarget(cubeTarget, 0);
   jobs.push(renderer.compileAsync(scene, cubeCamera.children[0]));
   renderer.setRenderTarget(null);
   jobs.push(renderer.compileAsync(scene, camera));
+  // 日差しが 0 の間（シャッターを閉めている・夜）は日差しを外すので、その形のシェーダーも作っておく
+  const sunLights = [];
+  scene.traverseVisible((o) => o.isLight && o.castShadow && sunLights.push(o));
+  for (const l of sunLights) l.visible = false;
+  jobs.push(renderer.compileAsync(scene, camera));
+  for (const l of sunLights) l.visible = true;
   try {
     await Promise.all(jobs);
   } catch (e) {
@@ -1076,6 +1086,9 @@ const resolution = fixedRes
   ? { ratio: fixedRes, frame() {} }
   : createAdaptiveResolution(renderer, { max: maxPixelRatio, min: Math.max(0.6, maxPixelRatio * 0.6) });
 
+// 日差しの影は、影を落とす物が動いたときだけ描き直す（shadowCache.js）
+const shadowCache = createShadowCache(renderer, scene);
+
 const clock = new THREE.Clock();
 renderer.setAnimationLoop((now) => {
   resolution.frame(now);
@@ -1117,6 +1130,9 @@ renderer.setAnimationLoop((now) => {
   // ほかのメニューを開いている（呼んでいる・ズームしている）間は、お知らせのロボットを画面の外へはけさせる
   // （お知らせを読んでいる間は、newsProjector.read で映し続ける）
   room.newsProjector?.setAway(panel.isOpen || !!holo.pending || !!zoom.target || about.isOpen || goods.open);
+  lightGate.update(dt);
+  shadowCache.update();
+  if (perf && renderer.shadowMap.needsUpdate) perf.shadowUpdates = (perf.shadowUpdates ?? 0) + 1;
   renderer.render(scene, camera);
   if (perf) {
     if (!perf.frames) performance.mark('q:frame');

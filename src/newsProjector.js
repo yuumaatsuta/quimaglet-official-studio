@@ -217,6 +217,7 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
 
   return {
     group,
+    body, // 揺れながら飛ぶ本体（影は studioRoom.js の sunBlob）
     screen,
     // ふだんの投影がはっきり映っているか（壁の投影を押して読めるのは、このときだけ）
     get shown() {

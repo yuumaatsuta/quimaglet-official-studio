@@ -5,6 +5,7 @@ import { CONFIG } from './config.js';
 import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
 import { buildCrtTower, loadCrtTemplates } from './crtTower.js';
 import { floorMirror, footprintShadow } from './floorMirror.js';
+import { sunBlob } from './shadowCache.js';
 import { mergeStatic } from './mergeStatic.js';
 import { addRoomShade, addShelfShade } from './ambientShade.js';
 import { wallShadow } from './wallShadow.js';
@@ -303,6 +304,22 @@ export async function buildStudioRoom(onProgress, contentReady) {
   const hemi = new THREE.HemisphereLight('#dfe6ee', '#4d4640', 0.25);
   group.add(hemi);
 
+  // 2 台のロボットはいつも揺れているので、日差しの影の地図には入れない（入れると影を毎フレーム描き直すことになる。main.js の shadowCache）。
+  // 代わりに、床・奥の壁・左の壁の日なたに、やわらかい影を落とす
+  const blobPlanes = [
+    new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+    new THREE.Plane(new THREE.Vector3(0, 0, 1), D),
+    new THREE.Plane(new THREE.Vector3(1, 0, 0), W / 2),
+  ];
+  const blobs = [];
+  for (const body of [furniture.find((f) => f.userData.robot), newsProjector.body]) {
+    if (!body) continue;
+    body.traverse((o) => o.isMesh && (o.castShadow = false));
+    const blob = sunBlob(body, sun, { radius: 0.2, planes: blobPlanes });
+    blobs.push(blob);
+    group.add(blob);
+  }
+
   // 窓枠・アーム・手すりなど、動かない小さな部品をまとめる（描く回数を減らす）
   mergeStatic(group);
 
@@ -347,6 +364,7 @@ export async function buildStudioRoom(onProgress, contentReady) {
       wallMenu.group.userData.update(t, view);
       newsProjector.group.userData.update(t, view);
       planetarium.group.userData.update(t, view);
+      for (const blob of blobs) blob.userData.update();
     },
   };
 }
