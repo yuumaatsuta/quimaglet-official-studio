@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { createAdaptiveResolution } from './adaptiveResolution.js';
+import { createAdaptiveResolution, startRatio } from './adaptiveResolution.js';
 import { CONFIG } from './config.js';
 import { createAboutView } from './aboutView.js';
 import { GOODS, MEMBERS, NEWS_LIST, SECTIONS, loadContent, memberHtml, memberImageUrl } from './content.js';
@@ -15,7 +15,10 @@ import { KINDS, LOCATION, fetchCurrentWeather, weatherParams } from './weather.j
 import { createWeatherPanel } from './weatherPanel.js';
 import { createWeather } from './weatherScene.js';
 import { fitWindow, updateWindowCamera } from './windowCamera.js';
-import { createLightGate, createShadowCache } from './shadowCache.js';
+import { allReady, compileShadows, compileSliced, createLightGate, createShadowCache } from './shadowCache.js';
+import { playCrtVideo } from './crtScreen.js';
+import { nextTask } from './nextTask.js';
+import { queueTextures, setTextureUploader, texturesUploaded } from './textureQueue.js';
 
 if (isTouchDevice()) document.documentElement.classList.add('is-touch');
 
@@ -23,8 +26,10 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const bootLabel = document.getElementById('boot-label');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+setTextureUploader(renderer);
 const maxPixelRatio = Math.min(devicePixelRatio, 1.75);
-renderer.setPixelRatio(maxPixelRatio);
+const minPixelRatio = Math.max(0.6, maxPixelRatio * 0.6);
+renderer.setPixelRatio(startRatio(maxPixelRatio, minPixelRatio));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -36,7 +41,6 @@ document.getElementById('app').append(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#000');
 const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 // 読み込みの表示。ファイルのダウンロードで 90% まで、残りはシェーダーの組み立て（precompile）
 let bootShown = 0;
@@ -53,7 +57,12 @@ const contentReady = loadContent().then(() => performance.mark('q:content'));
 const weatherQuery = new URLSearchParams(location.search);
 const liveWeatherReady =
   CONFIG.weatherPanel && !weatherQuery.get('weather') ? fetchCurrentWeather().catch(() => null) : Promise.resolve(null);
-const room = await loadRoom(CONFIG.modelUrl, onBootProgress, contentReady);
+const roomReady = loadRoom(CONFIG.modelUrl, onBootProgress, contentReady);
+// 最初の環境マップ（周囲を撮るまでの仮の映り込み）。作るのに 0.3〜0.8 秒止まるので、ファイルのダウンロードを始めてから作る
+// （先に作ると、その間ダウンロードが始まらない）
+await nextTask();
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const room = await roomReady;
 performance.mark('q:room');
 scene.add(room.group);
 // 部屋ごとの見え方の上書き（目線の高さ・画角など）
@@ -127,6 +136,14 @@ void main() { vec3 d = normalize(vDir); gl_FragColor = mix(textureCube(a, d), te
   };
 
   return {
+    // 混ぜる材質と、環境マップを作る材質のシェーダーを裏で組み立てておく（最初に撮るときに止まらないように）
+    compile() {
+      const prev = renderer.getRenderTarget();
+      renderer.setRenderTarget(mixCube, 0);
+      pmrem.compileCubemapShader();
+      renderer.compile(mixScene, mixCamera.children[0]);
+      renderer.setRenderTarget(prev);
+    },
     capture(cubeTexture, blend) {
       draw(cubeTexture, cubeTexture, 1, toCube);
       if (!shown || !blend) {
@@ -223,7 +240,9 @@ if (room.weatherRig) {
 // 描く前に、すべての材質のシェーダーをまとめて組み立てておく。
 // 何もしないと、最初に描くときに 1 つずつ組み立てるので、その間（Windows では十数秒）画面が止まる。
 // まとめて渡すと GPU 側で並べて組み立て、待つ間も読み込み画面は動く。
-// 周囲を撮るとき（描き先が画像）と画面に描くときでは、同じ材質でも別のシェーダーになるので両方作る。
+// 周囲を撮るとき・床の映り込み（描き先が画像）と画面に描くときでは、同じ材質でも別のシェーダーになるので両方作る。
+// （画像に描く分を、部屋を見せてから裏で作ることも試したが、裏で組み立てている間は映像や画像を GPU へ送るのが待たされて
+//   画面が止まり、シャッターが上がるのもかえって遅くなった）
 // 組み立ての進み具合はわからないので、表示は 99% へ向けて少しずつ進める
 // プラネタリウムの光と天井の蛍光灯は、点いていない間は描く計算から外す（shadowCache.js）。シェーダーを組み立てる前に外しておく
 const lightGate = createLightGate(renderer, scene, camera, { targets: [cubeTarget] });
@@ -241,19 +260,42 @@ performance.mark('q:compiled');
 setShutter(shutterProgress, false);
 captureEnvironment();
 performance.mark('q:env');
+// ブラウン管の映像はここから流す（読み込みは部屋を作るときに始めている）
+playCrtVideo();
 
 async function precompile() {
   setShutter(1, false); // 開いたときにだけ見える物も含める
-  lightGate.prime();
-  const jobs = [];
-  renderer.setRenderTarget(cubeTarget, 0);
-  jobs.push(renderer.compileAsync(scene, cubeCamera.children[0]));
-  renderer.setRenderTarget(null);
-  jobs.push(renderer.compileAsync(scene, camera));
+  // 夜は月が下りてくると月の光が点くので、月の光の組は外さない（外すと、点いた直後に全部組み立て直して止まる）
+  lightGate.prime(initialWeather.night ? ['moon'] : []);
+  // 画像（テクスチャ）を先に GPU へ送り終える。読み込み中から送っているので、残りは後から作った画像くらい（textureQueue.js）。
+  // シェーダーの組み立てと同時に送ると、送るのが組み立ての後に待たされて、1 枚で 0.5 秒以上止まることがある
+  queueTextures(scene);
+  await texturesUploaded();
   try {
-    await Promise.all(jobs);
+    // 物のまとまりごとに区切って組み立てを始める（shadowCache.js）
+    await compileSliced(renderer, scene, camera, { targets: [cubeTarget, null] });
+    // 日差しの影を描く材質と、環境マップを作る材質も（renderer.compile では組み立てられない）
+    compileShadows(renderer, scene, camera, cubeTarget);
+    envMixer.compile();
+    // GPU 側の組み立ては並べて進む。全部できあがるまで待つ（待つ間も読み込み画面は動く）
+    await allReady(renderer);
+    await warmPrograms();
   } catch (e) {
     console.info('[boot] シェーダーの先読みに失敗しました（描くときに組み立てます）', e);
+  }
+}
+
+// できあがったシェーダーの、最初に使うときの下調べ（uniform の場所を GPU に問い合わせる。全部で 0.2 秒ほど）も、
+// 区切りながら済ませておく。最初の描画でまとめて行うと、そのぶん止まる
+async function warmPrograms() {
+  let slice = performance.now();
+  for (const p of renderer.info.programs) {
+    p.getUniforms();
+    p.getAttributes();
+    if (performance.now() - slice > 30) {
+      await nextTask();
+      slice = performance.now();
+    }
   }
 }
 
@@ -483,7 +525,9 @@ const about = createAboutView({
 const goodsPaper = createGoodsPaper();
 goodsPaper.group.visible = false;
 room.robot?.carry?.add(goodsPaper.group);
-const goodsReady = goodsPaper.draw(GOODS);
+// 紙の絵は手間がかかる（紙の質感と文字を描く）ので、起動中には描かない。起動が落ち着いた後か、開いたときに描く
+let goodsReady = null;
+const drawGoods = () => (goodsReady ??= goodsPaper.draw(GOODS));
 const goodsSr = document.getElementById('goods-sr');
 const goods = { open: false, releaseIn: -1 };
 const GOODS_ROLL_UP = 0.55; // 閉じるとき、紙を巻き上げてから帰るまで（秒）
@@ -496,7 +540,7 @@ async function openGoods() {
   goods.releaseIn = -1;
   document.body.classList.add('is-goods'); // 紙に重なる IMMERSE ボタンを隠す
   history.replaceState(null, '', '#goods');
-  await goodsReady;
+  await drawGoods();
   if (!goods.open) return;
   room.robot.deliver(goodsPaper.size);
   // 読み上げ・キーボード用に、同じ中身を見えない文章でも置く（購入ページのリンクもここから辿れる）
@@ -1097,7 +1141,7 @@ const fixedRes = Number(new URLSearchParams(location.search).get('res'));
 if (fixedRes) renderer.setPixelRatio(fixedRes);
 const resolution = fixedRes
   ? { ratio: fixedRes, frame() {} }
-  : createAdaptiveResolution(renderer, { max: maxPixelRatio, min: Math.max(0.6, maxPixelRatio * 0.6) });
+  : createAdaptiveResolution(renderer, { max: maxPixelRatio, min: minPixelRatio });
 
 // 日差しの影は、影を落とす物が動いたときだけ描き直す（shadowCache.js）
 const shadowCache = createShadowCache(renderer, scene);
@@ -1156,6 +1200,7 @@ renderer.setAnimationLoop((now) => {
     if (settledFor > 2) {
       settled = true;
       memberHolo.warm(renderer, camera);
+      setTimeout(drawGoods, 1500);
     }
   }
   // 夜なら、プラネタリウムの光を点けた形のシェーダーを用意しておく（月を押したときに止まらないように）

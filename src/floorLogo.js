@@ -364,25 +364,25 @@ function fillTri(out, W, H, p, q, r) {
   }
 }
 
-// 箱ぼかし 3 回（ガウスぼかしの近似）
+// 箱ぼかし 3 回（ガウスぼかしの近似）。端の外は端の画素が続くとみなす。
+// 窓の中の合計を、1 画素進むたびに入る画素を足し、出る画素を引いて求める（ぼかしの幅によらず速い）
 function blur(src, W, H, r) {
   const a = Float32Array.from(src);
   const b = new Float32Array(W * H);
+  const n = 2 * r + 1;
+  // 1 列（または 1 行）分：from の start から step おきに len 個を、to へぼかす
+  const line = (from, to, start, step, len) => {
+    const at = (i) => from[start + Math.min(len - 1, Math.max(0, i)) * step];
+    let s = 0;
+    for (let k = -r; k <= r; k++) s += at(k);
+    for (let i = 0; i < len; i++) {
+      to[start + i * step] = s / n;
+      s += at(i + r + 1) - at(i - r);
+    }
+  };
   for (let pass = 0; pass < 3; pass++) {
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        let s = 0;
-        for (let k = -r; k <= r; k++) s += a[y * W + Math.min(W - 1, Math.max(0, x + k))];
-        b[y * W + x] = s / (2 * r + 1);
-      }
-    }
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        let s = 0;
-        for (let k = -r; k <= r; k++) s += b[Math.min(H - 1, Math.max(0, y + k)) * W + x];
-        a[y * W + x] = s / (2 * r + 1);
-      }
-    }
+    for (let y = 0; y < H; y++) line(a, b, y * W, 1, W);
+    for (let x = 0; x < W; x++) line(b, a, x, W, H);
   }
   return a;
 }

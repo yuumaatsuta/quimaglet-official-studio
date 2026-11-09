@@ -14,12 +14,16 @@ const shared = {
   time: { value: 0 },
 };
 let videoStarted = false;
+let videoEl = null;
 
-// 流す映像（mp4 / webm）を決める。最初の 1 回だけ読み込む
+// 流す映像（mp4 / webm）を決めて、読み込みを始める。最初の 1 回だけ。
+// 再生は playCrtVideo で始める（再生の始まりは、シェーダーの組み立て中に重なると 1 秒近く止まるので、起動の後にする）
 export function startCrtVideo(url) {
   if (videoStarted || !url) return;
   videoStarted = true;
   const video = document.createElement('video');
+  videoEl = video;
+  video.preload = 'auto';
   video.src = url;
   video.crossOrigin = 'anonymous';
   video.loop = true;
@@ -37,6 +41,12 @@ export function startCrtVideo(url) {
     { once: true },
   );
   video.addEventListener('error', () => console.info('[crt] 映像が読めないので砂嵐を映します:', url));
+  video.load();
+}
+
+export function playCrtVideo() {
+  const video = videoEl;
+  if (!video) return;
   // 自動再生が止められたら、最初に画面に触れたときに再生する
   video.play().catch(() => addEventListener('pointerdown', () => video.play().catch(() => {}), { once: true }));
 }

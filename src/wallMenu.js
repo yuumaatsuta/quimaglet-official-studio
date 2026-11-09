@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SECTIONS } from './content.js';
+import { nextTask } from './nextTask.js';
 
 // 奥の壁にペンキで落書きしたメニュー（About / Works / News / Goods / Contact）。
 // 1 語ずつ板にして壁にぴったり貼り、hotspot（押すとそのページ）にする。
@@ -40,6 +41,7 @@ export async function buildWallMenu({ wallZ, seed = 23 }) {
 
   for (const word of WORDS) {
     const label = SECTIONS[word.id]?.label ?? word.id;
+    await nextTask(); // 1 語ずつ区切って塗る（1 語 50〜100ms かかる）
     const { texture, aspect, ratio, text } = paintWord(label, word, rand);
     const h = PAINT.letterHeight * word.scale * ratio; // 板は文字より上下に余白（垂れ・にじみ）がある
     const m = h / text.canvasH; // canvas の 1px が何 m か
@@ -291,7 +293,8 @@ function paintWord(label, word, rand) {
   const mask = document.createElement('canvas');
   mask.width = w;
   mask.height = H;
-  const mctx = mask.getContext('2d');
+  // 形を読み戻す（getImageData）ので、GPU ではなく CPU の上に描く（GPU の画像を読み戻すと待たされる）
+  const mctx = mask.getContext('2d', { willReadFrequently: true });
   mctx.fillStyle = mctx.strokeStyle = '#fff';
   drawText(mctx);
   drawDeco(mctx);

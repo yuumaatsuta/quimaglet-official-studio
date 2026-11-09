@@ -85,11 +85,14 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
   halo.position.copy(ball.position);
   halo.userData.noPick = true;
   moon.add(halo);
+  // 光は月の中に入れず、部屋側に置いて毎フレーム月の位置へ動かす。月（pivot）は昼のあいだ隠すので、
+  // 中に入れると、隠す・出すたびに部屋の光の数が変わり、全ての材質のシェーダーを組み立て直すことになる
   const glowLight = new THREE.PointLight(FAINT, 0, 3, 2);
-  glowLight.position.copy(ball.position);
-  moon.add(glowLight);
-  // 夜にしか点かない光。点いていない間は描く計算から外す（main.js の lightGate。夜になったら裏で描き方を用意しておく）
-  glowLight.userData.gate = 'sky';
+  group.add(glowLight);
+  const glowAt = new THREE.Vector3();
+  // 夜にしか点かない光（夜の間はずっと点いている）。昼は描く計算から外す（main.js の lightGate）。
+  // 星を映すときだけ点く光（'sky'）とは別の組にする（夜に起動するとき、星の光まで入れてシェーダーを組み立てずに済む）
+  glowLight.userData.gate = 'moon';
 
   // ---------- 星を映すプロジェクター（カメラの後ろ）と、手元の明かり（カメラの真上） ----------
 
@@ -196,7 +199,8 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
     lastT = t;
     if (!view?.win || !view?.eye) return;
     const key = `${view.win.halfW.toFixed(3)},${view.win.halfH.toFixed(3)}`;
-    if (key !== lastKey) {
+    // 置き場所を探す（部屋に線を何本も飛ばすので重い）のは、月を下ろすときだけ。昼は探さない
+    if (key !== lastKey && (night || drop > 0)) {
       lastKey = key;
       layout(view.eye, view.win);
     }
@@ -222,6 +226,7 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
     }
     pivot.rotation.z = swingZ;
     pivot.rotation.x = swingX;
+    glowLight.position.copy(group.worldToLocal(ball.getWorldPosition(glowAt)));
 
     // 星：プロジェクターのランプが温まるように、じんわり浮かび上がる
     const want = on && night ? 1 : 0;

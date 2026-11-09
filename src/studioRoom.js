@@ -14,6 +14,8 @@ import { buildWallMenu } from './wallMenu.js';
 import { buildFloorLogo } from './floorLogo.js';
 import { buildNewsProjector } from './newsProjector.js';
 import { buildPlanetarium } from './planetarium.js';
+import { nextTask } from './nextTask.js';
+import { queueTexture } from './textureQueue.js';
 
 // 写真から起こしたコンクリート打ち放しのスタジオ（家具なし）。
 // 寸法は型枠（1800×900）の枚数から割り出したもの。単位は m。
@@ -54,6 +56,7 @@ export async function buildStudioRoom(onProgress, contentReady) {
     buildFloorLogo(manager),
   ]);
   startCrtVideo(CONFIG.crtVideo);
+  await nextTask();
   const group = new THREE.Group();
 
   const concrete = new THREE.MeshStandardMaterial({
@@ -144,6 +147,7 @@ export async function buildStudioRoom(onProgress, contentReady) {
 
   // コンクリートの棚の上に載る、升目の木の棚
   group.add(buildCubbyShelf({ box, textures }));
+  await nextTask();
 
   // 家具（public/models/ の GLB）
   // クリックできる家具。focus のものは、押すとそこへズームする（main.js）
@@ -169,11 +173,13 @@ export async function buildStudioRoom(onProgress, contentReady) {
   await contentReady; // 壁のメニューとお知らせは、文章を読んでから作る
   const wallMenu = await buildWallMenu({ wallZ: -D });
   group.add(wallMenu.group);
+  await nextTask();
   for (const [id, mesh] of wallMenu.items) tagHotspot(hotspots, id, mesh);
 
   // 2 台目のロボット：少しすると左から飛んできて、メニューの下に最新のお知らせを映す
   const newsProjector = await buildNewsProjector({ manager, wallZ: -D, menu: wallMenu.group });
   group.add(newsProjector.group);
+  await nextTask();
 
   // 夜になると画面の手前に下りてくる月（触れると部屋に星空を映す）
   const planetarium = buildPlanetarium({
@@ -204,6 +210,7 @@ export async function buildStudioRoom(onProgress, contentReady) {
     target: towerTarget, rand: towerRand, armMaterial: steel,
   });
   group.add(rightTower, leftTower);
+  await nextTask();
   // 大きな物（ソファ・タワー）の周りの床と壁の暗がり
   const occ = [
     ...FURNITURE.flatMap((it, i) => (it.occluder ? [[furniture[i], it.occluder]] : [])),
@@ -222,11 +229,15 @@ export async function buildStudioRoom(onProgress, contentReady) {
     roomShape.occluders.strength.value[i].set(...(Array.isArray(k) ? k : [k, k]));
   });
   // タワーが奥の壁と左の壁に落とす影（ブラウン管とアームの形に沿って）
-  group.add(
-    wallShadow(leftTower, { wall: 'z', at: -D, light: WALL_LIGHT.back }),
-    wallShadow(leftTower, { wall: 'x', at: -W / 2, light: WALL_LIGHT.left }),
-    wallShadow(rightTower, { wall: 'z', at: -D, light: WALL_LIGHT.back }),
-  );
+  // 1 枚ずつ区切って作る（1 枚 0.1〜0.3 秒かかる）
+  for (const [tower, wall, at, light] of [
+    [leftTower, 'z', -D, WALL_LIGHT.back],
+    [leftTower, 'x', -W / 2, WALL_LIGHT.left],
+    [rightTower, 'z', -D, WALL_LIGHT.back],
+  ]) {
+    group.add(wallShadow(tower, { wall, at, light }));
+    await nextTask();
+  }
 
   // 左上の斜めのコンクリート面（奥の角で天井に取り付き、手前は 45° のハンチになる）
   group.add(slopedSlab(concrete));
@@ -1800,14 +1811,34 @@ function contactShadow(box, x, z) {
   return mesh;
 }
 
+// 画像は ImageBitmap で読む（画像の展開をブラウザが裏で済ませる）。<img> のままだと、最初に GPU へ送るときに
+// その場で展開することになり、最初の描画で止まる。上下の向きは読むときに反転しておく（GLTFLoader と同じ）
+function textureLoader(manager) {
+  const ua = navigator.userAgent;
+  const oldSafari = /^((?!chrome|android).)*safari/i.test(ua) && +(ua.match(/Version\/(\d+)/)?.[1] ?? 0) < 17;
+  const oldFirefox = +(ua.match(/Firefox\/(\d+)/)?.[1] ?? 999) < 98;
+  if (typeof createImageBitmap === 'undefined' || oldSafari || oldFirefox) return new THREE.TextureLoader(manager);
+  const loader = new THREE.ImageBitmapLoader(manager);
+  loader.setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none' });
+  return {
+    loadAsync: async (url) => {
+      const tex = new THREE.Texture(await loader.loadAsync(url));
+      tex.flipY = false;
+      tex.needsUpdate = true;
+      return tex;
+    },
+  };
+}
+
 async function loadTextures(manager) {
-  const loader = new THREE.TextureLoader(manager);
+  const loader = textureLoader(manager);
   const base = `${import.meta.env.BASE_URL}textures/`;
   const load = async (name, srgb) => {
     const tex = await loader.loadAsync(base + name);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = 8;
     if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
+    queueTexture(tex); // すぐ GPU へ送り始める（textureQueue.js）
     return tex;
   };
   const files = {

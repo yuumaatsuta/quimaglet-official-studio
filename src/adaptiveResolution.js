@@ -5,6 +5,20 @@
 // - 解像度を変えると描き先を作り直すので、そのたびに 0.3 秒ほど止まる。変える回数を減らすため、1 回の幅を大きくし、4 秒は間を空ける
 // - 下げても速くならないとき（画面の更新が 30fps に絞られている省電力モードなど）は元に戻し、以後は下げない
 // - 余裕が 3 秒続いたら 1 段戻す。戻してすぐ遅くなったら、しばらく戻さない（行ったり来たりしない）
+// - 決まった解像度は覚えておき、次に開いたときはその解像度から始める（開いた直後に下げて止まることがない）
+const KEY = 'quimaglet:resolution';
+
+// 始めの解像度（前に決まった解像度。なければ最大）。描き始める前に設定する（後から変えると描き先の作り直しで止まる）
+export function startRatio(max, min) {
+  try {
+    const saved = Number(localStorage.getItem(KEY));
+    if (saved >= min && saved < max) return saved;
+  } catch {
+    // 覚えておけない環境では、最大から始める
+  }
+  return max;
+}
+
 export function createAdaptiveResolution(renderer, { max, min }) {
   const SLOW = 1000 / 45;
   const FAST = 1000 / 57;
@@ -12,7 +26,7 @@ export function createAdaptiveResolution(renderer, { max, min }) {
   const GAP = 4000; // 前に変えてから次に変えるまで
   const WARMUP = 3000; // 描き始めはシェーダーの組み立てや映像の読み込みで引っかかるので見ない
 
-  let ratio = max;
+  let ratio = renderer.getPixelRatio();
   let prev = 0;
   let start = 0;
   let sum = 0;
@@ -27,6 +41,11 @@ export function createAdaptiveResolution(renderer, { max, min }) {
     ratio = r;
     lastChange = now;
     renderer.setPixelRatio(r); // 大きさ（setSize）もこの中で設定し直される
+    try {
+      localStorage.setItem(KEY, String(r));
+    } catch {
+      // 覚えておけなくても動きは同じ
+    }
   };
 
   return {

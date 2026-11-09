@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { nextTask } from './nextTask.js';
 
 // 日差しの影（影の地図）を、影を落とす物が動いたときだけ描き直す。
 // 部屋の家具やブラウン管はほとんど動かないので、ふだんは前に描いた影をそのまま使う（毎フレーム約 100 万枚の三角形を描かずに済む）。
@@ -121,40 +122,39 @@ export function createLightGate(renderer, scene, camera, { offDelay = 1, targets
   const setAll = (g, v) => {
     for (const l of g.lights) l.visible = v;
   };
-  // いまの光の点き方で、画面用と画像用の描き方を組み立てる
-  function compileAll() {
-    const prev = renderer.getRenderTarget();
-    for (const t of [null, ...targets]) {
-      try {
-        renderer.setRenderTarget(t);
-        renderer.compile(scene, camera);
-      } catch (e) {
-        // 組み立てられなかった分は、描くときに組み立てる
-      }
-    }
-    renderer.setRenderTarget(prev);
+  // その組を visible にした形で、画面用・画像用・影用の描き方を組み立てる。
+  // 物のまとまりごとに区切り、区切りの間（画面を描く間）は今の点き方に戻しておく
+  async function compileWith(g, visible) {
+    const around = () => {
+      setAll(g, visible);
+      return () => setAll(g, g.shown);
+    };
+    await compileSliced(renderer, scene, camera, { targets: [null, ...targets], around });
+    const undo = around();
+    compileShadows(renderer, scene, camera, targets[0] ?? null);
+    undo();
   }
   function switchTo(g, visible) {
     busy = true;
-    setAll(g, visible);
-    compileAll();
-    setAll(g, g.shown);
-    allReady(renderer).then(() => {
-      g.shown = visible;
-      setAll(g, visible);
-      busy = false;
-      g.off = 0;
-      gate.onSwitch?.();
-    });
+    compileWith(g, visible)
+      .then(() => allReady(renderer))
+      .then(() => {
+        g.shown = visible;
+        setAll(g, visible);
+        busy = false;
+        g.off = 0;
+        gate.onSwitch?.();
+      });
   }
 
   const gate = {
     onSwitch: null, // 切り替えた後に呼ぶ（main.js：影を描き直す）
     // 起動時：全部 0 の組は先に外しておく（シェーダーを最初からその形で組み立てる）
-    prime() {
+    //   keep: すぐ点くとわかっている組（夜の月の光など）。今は 0 でも外さない
+    prime(keep = []) {
       collect();
-      for (const g of groups.values()) {
-        if ([...g.lights].every((l) => l.intensity <= 1e-4)) {
+      for (const [name, g] of groups) {
+        if (!keep.includes(name) && [...g.lights].every((l) => l.intensity <= 1e-4)) {
           g.shown = false;
           setAll(g, false);
         }
@@ -165,12 +165,11 @@ export function createLightGate(renderer, scene, camera, { offDelay = 1, targets
       collect();
       const g = groups.get(name);
       if (!g || g.shown || busy) return;
-      setAll(g, true);
-      compileAll();
-      setAll(g, false);
       // できあがるまでは、ほかの切り替えをしない（裏の組み立てに、新しい組み立てを重ねない）
       busy = true;
-      allReady(renderer).then(() => (busy = false));
+      compileWith(g, true)
+        .then(() => allReady(renderer))
+        .then(() => (busy = false));
     },
     update(dt) {
       if (frame++ % 120 === 0) collect();
@@ -286,4 +285,100 @@ export function sunBlob(target, sun, { radius, planes, strength = 0.5, full = 5.
     mesh.visible = true;
   };
   return mesh;
+}
+
+// 日差しの影を描くときのシェーダー（影の地図に奥行きを描く材質）を、裏で組み立てておく。
+// renderer.compile は画面に描く材質しか組み立てないので、何もしないと最初に影を描くときにその場で組み立てて止まる。
+// 影を描くときと同じ材質（three の WebGLShadowMap が選ぶもの）にいったん差し替えて組み立てる。
+//   target: 画面以外の描き先（影の地図と同じく、色の変換なしで描く）
+const SHADOW_SIDE = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
+export function compileShadows(renderer, scene, camera, target) {
+  let lit = false;
+  scene.traverseVisible((o) => (lit ||= o.isDirectionalLight && o.castShadow));
+  if (!lit || !renderer.shadowMap.enabled) return;
+  const plain = new THREE.MeshDepthMaterial();
+  // WebGLShadowMap.getDepthMaterial と同じ値を写す（シェーダーは材質そのものでなく値で決まるので、複製でよい）
+  const variant = (m) => {
+    const d = plain.clone();
+    d.side = m.shadowSide ?? SHADOW_SIDE[m.side];
+    d.visible = m.visible;
+    d.wireframe = m.wireframe;
+    d.alphaMap = m.alphaMap;
+    d.alphaTest = m.alphaToCoverage ? 0.5 : m.alphaTest;
+    d.map = m.map;
+    d.clipShadows = m.clipShadows;
+    d.clippingPlanes = m.clippingPlanes;
+    d.clipIntersection = m.clipIntersection;
+    d.displacementMap = m.displacementMap;
+    d.displacementScale = m.displacementScale;
+    d.displacementBias = m.displacementBias;
+    return d;
+  };
+  const casters = new Set();
+  scene.traverseVisible((o) => {
+    if ((o.isMesh || o.isLine || o.isPoints) && o.castShadow) casters.add(o);
+  });
+  // renderer.compile は見えない物も含めて全ての材質を組み立てるので、影を落とさない物は材質をいったん外す
+  const swapped = new Map();
+  scene.traverse((o) => {
+    if (!o.material) return;
+    swapped.set(o, o.material);
+    if (!casters.has(o)) o.material = null;
+    else if (o.customDepthMaterial) o.material = o.customDepthMaterial;
+    else o.material = Array.isArray(o.material) ? o.material.map(variant) : variant(o.material);
+  });
+  const prev = renderer.getRenderTarget();
+  // 影を描くときは霧（scene.fog）を渡さない。霧があるとシェーダーが別物になる
+  const fog = scene.fog;
+  scene.fog = null;
+  try {
+    renderer.setRenderTarget(target);
+    renderer.compile(scene, camera);
+  } catch {
+    // 組み立てられなかった分は、描くときに組み立てる
+  }
+  scene.fog = fog;
+  renderer.setRenderTarget(prev);
+  for (const [o, m] of swapped) o.material = m;
+}
+
+// renderer.compile を、物のまとまりごとに区切って行う（全部を一度に組み立てると、シェーダーを作る準備だけで 0.4 秒ほど止まる）。
+// 光と霧・環境マップは scene 全体のものを使う（compile の 3 つめの引数）。
+//   targets: 描き先の一覧（null は画面）
+//   around: 区切りごとに、組み立てる前に呼ぶ（戻り値の関数を組み立てた後に呼ぶ）。区切りの間に画面を描くときの状態に戻すため
+export async function compileSliced(renderer, scene, camera, { targets = [null], around = null, budget = 25 } = {}) {
+  // compile は、渡した物の中の光も scene の光に足して数える（同じ光を 2 回数えて、違うシェーダーになる）。
+  // 光を含むまとまりはさらに分け、光そのものは渡さない
+  const hasLight = new Set();
+  scene.traverse((o) => {
+    if (o.isLight) for (let p = o; p; p = p.parent) hasLight.add(p);
+  });
+  const parts = [];
+  const split = (o, depth) => {
+    for (const c of o.children) {
+      if (c.isLight) continue;
+      if (hasLight.has(c) || (depth < 1 && c.children.length && !c.material)) split(c, depth + 1);
+      else parts.push(c);
+    }
+  };
+  split(scene, 0);
+  let slice = performance.now();
+  for (const part of parts) {
+    const undo = around?.();
+    const prev = renderer.getRenderTarget();
+    for (const t of targets) {
+      try {
+        renderer.setRenderTarget(t);
+        renderer.compile(part, camera, scene);
+      } catch {
+        // 組み立てられなかった分は、描くときに組み立てる
+      }
+    }
+    renderer.setRenderTarget(prev);
+    undo?.();
+    if (performance.now() - slice > budget) {
+      await nextTask();
+      slice = performance.now();
+    }
+  }
 }
