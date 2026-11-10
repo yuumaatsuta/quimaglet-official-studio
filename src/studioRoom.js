@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { gltfLoader } from './gltf.js';
+import { gltfLoader, loadKTX2 } from './gltf.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { CONFIG } from './config.js';
 import { addCrtScreen, startCrtVideo, updateCrtScreens } from './crtScreen.js';
@@ -1811,30 +1811,10 @@ function contactShadow(box, x, z) {
   return mesh;
 }
 
-// 画像は ImageBitmap で読む（画像の展開をブラウザが裏で済ませる）。<img> のままだと、最初に GPU へ送るときに
-// その場で展開することになり、最初の描画で止まる。上下の向きは読むときに反転しておく（GLTFLoader と同じ）
-function textureLoader(manager) {
-  const ua = navigator.userAgent;
-  const oldSafari = /^((?!chrome|android).)*safari/i.test(ua) && +(ua.match(/Version\/(\d+)/)?.[1] ?? 0) < 17;
-  const oldFirefox = +(ua.match(/Firefox\/(\d+)/)?.[1] ?? 999) < 98;
-  if (typeof createImageBitmap === 'undefined' || oldSafari || oldFirefox) return new THREE.TextureLoader(manager);
-  const loader = new THREE.ImageBitmapLoader(manager);
-  loader.setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none' });
-  return {
-    loadAsync: async (url) => {
-      const tex = new THREE.Texture(await loader.loadAsync(url));
-      tex.flipY = false;
-      tex.needsUpdate = true;
-      return tex;
-    },
-  };
-}
-
 async function loadTextures(manager) {
-  const loader = textureLoader(manager);
   const base = `${import.meta.env.BASE_URL}textures/`;
   const load = async (name, srgb) => {
-    const tex = await loader.loadAsync(base + name);
+    const tex = await loadKTX2(base + name, manager);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = 8;
     if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
@@ -1842,20 +1822,20 @@ async function loadTextures(manager) {
     return tex;
   };
   const files = {
-    concreteAlbedo: ['concrete_albedo.webp', true],
-    concreteNormal: ['concrete_normal.webp'],
-    concreteRough: ['concrete_roughness.webp'],
-    woodAlbedo: ['wood_albedo.webp', true],
-    woodNormal: ['wood_normal.webp'],
-    woodRough: ['wood_roughness.webp'],
-    shelfAlbedo: ['shelf_albedo.webp', true],
-    shelfNormal: ['shelf_normal.webp'],
-    shelfRough: ['shelf_roughness.webp'],
-    shutterAlbedo: ['shutter_albedo.webp', true],
-    shutterRough: ['shutter_roughness.webp'],
-    pavingAlbedo: ['paving_albedo.webp', true],
-    pavingNormal: ['paving_normal.webp'],
-    pavingRough: ['paving_roughness.webp'],
+    concreteAlbedo: ['concrete_albedo.ktx2', true],
+    concreteNormal: ['concrete_normal.ktx2'],
+    concreteRough: ['concrete_roughness.ktx2'],
+    woodAlbedo: ['wood_albedo.ktx2', true],
+    woodNormal: ['wood_normal.ktx2'],
+    woodRough: ['wood_roughness.ktx2'],
+    shelfAlbedo: ['shelf_albedo.ktx2', true],
+    shelfNormal: ['shelf_normal.ktx2'],
+    shelfRough: ['shelf_roughness.ktx2'],
+    shutterAlbedo: ['shutter_albedo.ktx2', true],
+    shutterRough: ['shutter_roughness.ktx2'],
+    pavingAlbedo: ['paving_albedo.ktx2', true],
+    pavingNormal: ['paving_normal.ktx2'],
+    pavingRough: ['paving_roughness.ktx2'],
   };
   const entries = await Promise.all(
     Object.entries(files).map(async ([key, [name, srgb]]) => [key, await load(name, srgb)]),

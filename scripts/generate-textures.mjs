@@ -1,12 +1,13 @@
-// 部屋のテクスチャを public/textures/ に書き出す。
+// 部屋のテクスチャ（元の画像）を tools/texture-src/ に書き出す。
 //   node scripts/generate-textures.mjs
 // 実写のテクスチャに差し替えるときは、同じファイル名・同じ実寸で置き換えればよい。
+// サイトが読むのは public/textures/ の KTX2。元の画像から tools/to-ktx2.mjs（texture）で作る
 
 import { mkdirSync } from 'node:fs';
 import { clamp01, createNoise, heightToNormal, mulberry32, smoothstep, toByte } from './lib/noise.mjs';
 import { writePNG } from './lib/png.mjs';
 
-const OUT = new URL('../public/textures/', import.meta.url);
+const OUT = new URL('../tools/texture-src/', import.meta.url);
 mkdirSync(OUT, { recursive: true });
 const out = (name) => new URL(name, OUT);
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { loadKTX2 } from './gltf.js';
 
 // 夜になると、画面の手前に天井から月が 1 つ下りてくる。月はふだん青く弱い、今にも消えそうな光。
 // 触れると月の色（黄色）にじんわり光り、カメラの後ろのプロジェクターから部屋じゅうに星空を映す（プラネタリウム）。
@@ -103,7 +104,8 @@ export function buildPlanetarium({ ceilingY, halfWidth, backZ, keepClear, root }
   const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
   blank.needsUpdate = true;
   projector.map = blank;
-  new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/starsky.jpg`, (tex) => {
+  // KTX2 は tools/to-ktx2.mjs で starsky.jpg から作る（texture … color）
+  loadKTX2(`${import.meta.env.BASE_URL}textures/starsky.ktx2`).then((tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 8;
     projector.map = tex;

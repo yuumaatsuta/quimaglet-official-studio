@@ -18,6 +18,7 @@ import { fitWindow, updateWindowCamera } from './windowCamera.js';
 import { allReady, compileShadows, compileSliced, createLightGate, createShadowCache } from './shadowCache.js';
 import { playCrtVideo } from './crtScreen.js';
 import { nextTask } from './nextTask.js';
+import { useRenderer } from './gltf.js';
 import { queueTextures, setTextureUploader, texturesUploaded } from './textureQueue.js';
 
 if (isTouchDevice()) document.documentElement.classList.add('is-touch');
@@ -27,6 +28,7 @@ const bootLabel = document.getElementById('boot-label');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 setTextureUploader(renderer);
+useRenderer(renderer);
 const maxPixelRatio = Math.min(devicePixelRatio, 1.75);
 const minPixelRatio = Math.max(0.6, maxPixelRatio * 0.6);
 renderer.setPixelRatio(startRatio(maxPixelRatio, minPixelRatio));

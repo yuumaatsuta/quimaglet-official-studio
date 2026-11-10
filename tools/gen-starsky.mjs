@@ -1,4 +1,4 @@
-// 使い方（scratchpad などで puppeteer-core を入れて）: node gen-starsky.mjs stars.8.json mw.json ../public/textures/starsky.jpg
+// 使い方（scratchpad などで puppeteer-core を入れて）: node gen-starsky.mjs stars.8.json mw.json ../tools/texture-src/starsky.jpg（その後 to-ktx2.mjs で public/textures/starsky.ktx2 に）
 // データ: d3-celestial（https://github.com/ofrohn/d3-celestial）の data/stars.8.json（ヨール輝星表ほか）と data/mw.json（天の川の輪郭）
 // 実際の星表（d3-celestial の stars.8.json / mw.json）から、プロジェクターに載せる星空の画像を作る。
 // 画像はプロジェクターの光の円錐（半角 HALF_ANGLE）にそのまま合う心射図法（投影する点から見て正しい角度になる）
