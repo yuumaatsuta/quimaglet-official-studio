@@ -11,7 +11,7 @@ import { createMemberCard } from './memberCard.js';
 import { createMemberHolo } from './memberHolo.js';
 import { createPanel } from './panel.js';
 import { loadRoom } from './room.js';
-import { KINDS, LOCATION, fetchCurrentWeather, weatherParams } from './weather.js';
+import { KINDS, LOCATION, fetchCurrentWeather, isDaylight, weatherParams } from './weather.js';
 import { createWeatherPanel } from './weatherPanel.js';
 import { createWeather } from './weatherScene.js';
 import { fitWindow, updateWindowCamera } from './windowCamera.js';
@@ -229,7 +229,7 @@ const earlyWeather = await Promise.race([liveWeatherReady, new Promise((res) => 
 const initialWeather =
   fixedWeather && KINDS[fixedWeather]
     ? weatherParams(fixedWeather, !weatherQuery.has('night'))
-    : (earlyWeather?.params ?? weatherParams('clear', true));
+    : (earlyWeather?.params ?? weatherParams('clear', isDaylight())); // 天気がまだ分からなければ、時計で昼・夜を決める
 if (room.weatherRig) {
   weather = createWeather({
     scene,
@@ -328,13 +328,19 @@ if (weather) {
     : null;
 
   let firstLive = true;
+  let lastKind = earlyWeather?.kind ?? 'clear'; // 最後に取れた天気の種類
+  let shownNight = !!initialWeather.night;
+  let retryTimer = 0;
   async function applyLiveWeather() {
+    clearTimeout(retryTimer);
     weatherPanel?.setStatus(`${LOCATION.name}の天気を取得中…`);
     try {
       const early = firstLive ? await liveWeatherReady : null;
       firstLive = false;
       const now = early ?? (await fetchCurrentWeather());
       if (weatherPanel && !weatherPanel.live) return;
+      lastKind = now.kind;
+      shownNight = !!now.params.night;
       setWeather(now.params);
       const time = now.time.slice(11, 16);
       weatherPanel?.setStatus(
@@ -342,7 +348,15 @@ if (weather) {
       );
     } catch (err) {
       console.warn('[weather]', err);
-      weatherPanel?.setStatus(`${LOCATION.name}の天気を取得できませんでした`);
+      if (weatherPanel && !weatherPanel.live) return;
+      // 天気が取れないあいだも、昼・夜は時計に合わせる（天気は最後に取れたもののまま）
+      const night = !isDaylight();
+      if (night !== shownNight) {
+        shownNight = night;
+        setWeather(weatherParams(lastKind, !night));
+      }
+      weatherPanel?.setStatus(`${LOCATION.name}の天気を取得できませんでした（1 分後にもう一度）`);
+      retryTimer = setTimeout(() => (!weatherPanel || weatherPanel.live) && applyLiveWeather(), 60 * 1000);
     }
   }
 

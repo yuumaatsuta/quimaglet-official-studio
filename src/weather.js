@@ -128,7 +128,28 @@ function rainAmount(code) {
   return 1;
 }
 
-// 現在の淵野辺の天気（Open-Meteo、15 分ごとに更新されるデータ）
+// 淵野辺で、いま太陽が地平線より上にあるか（日の出〜日の入り）。天気が取れないときの昼・夜に使う。
+// NOAA の近似式（誤差は数分）。太陽の円盤の半径と大気の屈折ぶん（-0.833°）まで昼とみなす
+export function isDaylight(date = new Date(), { latitude, longitude } = LOCATION) {
+  const rad = Math.PI / 180;
+  const start = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const hours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+  const doy = Math.floor((date.getTime() - start) / 86400000) + 1;
+  const g = ((2 * Math.PI) / 365) * (doy - 1 + (hours - 12) / 24);
+  const eqTime =
+    229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const decl =
+    0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) -
+    0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const solarMinutes = hours * 60 + eqTime + 4 * longitude;
+  const hourAngle = (solarMinutes / 4 - 180) * rad;
+  const lat = latitude * rad;
+  const sinElev = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle);
+  return sinElev > Math.sin(-0.833 * rad);
+}
+
+// 現在の淵野辺の天気（Open-Meteo、15 分ごとに更新されるデータ）。
+// 応答がないまま待ち続けないよう、8 秒で打ち切る（打ち切ったら呼んだ側で時計から昼・夜を決める）
 export async function fetchCurrentWeather() {
   const url = new URL('https://api.open-meteo.com/v1/forecast');
   url.search = new URLSearchParams({
@@ -137,7 +158,7 @@ export async function fetchCurrentWeather() {
     current: 'temperature_2m,weather_code,is_day,cloud_cover',
     timezone: 'Asia/Tokyo',
   });
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout?.(8000) });
   if (!res.ok) throw new Error(`weather ${res.status}`);
   const { current } = await res.json();
   const code = current.weather_code;
