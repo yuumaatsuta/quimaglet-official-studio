@@ -6,7 +6,7 @@
 npm install
 npm run dev      # 開発サーバー
 npm run build    # dist/ に書き出し（静的ホスティングにそのまま置ける）
-npm run deploy   # GitHub Pages に公開 → https://yuumaatsuta.github.io/quimaglet-official-studio/
+npm run deploy   # GitHub Pages に公開 → https://quimaglet.studio/
 ```
 
 ## 仕組み
