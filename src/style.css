@@ -611,6 +611,9 @@ body.is-goods .hero {
   min-height: 100%;
   will-change: transform;
 }
+.about-view[data-mode='pc'] .about-scroll {
+  overflow: hidden; /* PC 版は 1 画面に収める（スクロールしない） */
+}
 .about-view[data-mode='pc'] .about-page {
   height: 100%;
 }

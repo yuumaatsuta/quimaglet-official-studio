@@ -1,7 +1,7 @@
 // About を開いたときの画面。バンドが作ったデザインを、部屋の上にそのまま映す（地は透明。写真だけ不透明）。
 // 映り始めと、映っている間ときどき、ノイズが走って絵が乱れる（エラーのような乱れ）。
 // PC：見開きを 5 つに分けた絵を、画面の四隅とまんなかに置き、文字どうしが重ならない範囲でいちばん大きく映す。
-//   横長でも高さが足りない画面（表示拡大 150% のノート PC など）は、PC 版のまま少し縦にスクロールさせる。
+//   横長でも高さが足りない画面（表示拡大 150% のノート PC など）も、PC 版のまま少し縮めて 1 画面に収める（スクロールなし）。
 // スマホ（縦長の画面や、横幅が狭すぎて PC 用では文字が小さくなりすぎる画面）：縦に長い 1 枚を、幅を合わせて縦へスクロールして読む。
 // 文字や写真のない所（透明な所）を押す・Esc で閉じる
 
@@ -28,6 +28,7 @@ const LYRIC = {
 };
 const PHONE = { src: 'about-sp.webp', w: 1088, h: 9537 };
 const PC_MIN_SCALE = 0.2; // これより小さく縮めないと収まらない画面では、スマホ用の縦長の絵にする
+const PC_MIN_SCALE_LANDSCAPE = 0.1; // 横長の画面（PC）は、ここまで縮めても PC 版で 1 画面に収める
 const PC_MAX_SCALE = 0.75;
 
 const NOISE = {
@@ -211,36 +212,16 @@ export function createAboutView({ onOpen, onClose } = {}) {
     // 題字はロゴの下か右か、大きく映せる方に置く
     const below = W >= H ? pcScale(box, false) : 0;
     const right = W >= H ? pcScale(box, true) : 0;
-    let k = Math.max(below, right);
-    let beside = right > below;
-    // 横長の画面（PC）で高さが足りないときは、文字を小さくしすぎず、PC 版の置き方のまま縦に少しスクロールさせる
-    let pageH = 0;
-    if (k < PC_MIN_SCALE && W >= H && !narrow) {
-      const fitsAt = (h) => {
-        const b = { ...box, b: h - 12 };
-        return pcScale(b, false) >= PC_MIN_SCALE || pcScale(b, true) >= PC_MIN_SCALE;
-      };
-      let lo = H;
-      let hi = H * 3;
-      if (fitsAt(hi)) {
-        for (let i = 0; i < 16; i++) {
-          const mid = (lo + hi) / 2;
-          if (fitsAt(mid)) hi = mid;
-          else lo = mid;
-        }
-        pageH = Math.ceil(hi);
-        box.b = pageH - 12;
-        const b2 = pcScale(box, false);
-        const r2 = pcScale(box, true);
-        k = Math.max(b2, r2);
-        beside = r2 > b2;
-      }
-    }
-    mode = k >= PC_MIN_SCALE ? 'pc' : 'phone';
+    const k = Math.max(below, right);
+    const beside = right > below;
+    // 横長の画面（PC）は、高さが足りなくてもスマホ版にせず、画面に収まる大きさまで縮めて 1 画面で見せる（スクロールなし）
+    // （マウスで操作する画面だけ。スマホを横にしたときは、これまで通り縦長の 1 枚をスクロールして読む）
+    const desktop = W >= H && !narrow && matchMedia('(pointer: fine)').matches;
+    const pc = desktop ? PC_MIN_SCALE_LANDSCAPE : PC_MIN_SCALE;
+    mode = k >= pc ? 'pc' : 'phone';
     root.dataset.mode = mode;
     if (mode === 'pc') {
       page.style.padding = '';
-      page.style.height = pageH ? `${pageH}px` : '';
       const at = placePieces(k, box, beside);
       const lyric = placeLyric(at, k, box);
       if (lyric) at.lyric = lyric;
@@ -256,7 +237,6 @@ export function createAboutView({ onOpen, onClose } = {}) {
         el.style.top = `${y.toFixed(1)}px`;
       }
     } else {
-      page.style.height = '';
       setSrc(phoneEl, PHONE.src);
       const w = Math.min(W - side * 2, 600);
       phoneEl.style.width = `${w.toFixed(0)}px`;
