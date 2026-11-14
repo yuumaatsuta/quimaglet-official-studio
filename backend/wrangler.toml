@@ -22,6 +22,8 @@ database_id = "b8a9a578-728b-42ef-bbc6-5e2c384c42f8"
 name = "quimaglet-admin"
 workers_dev = true
 assets = { directory = "./admin", binding = "ASSETS" }
+# 管理画面のアドレス。Cloudflare Access のアプリにもこのホスト名を入れておく（入っていないと API がログインを確かめられない）
+routes = [{ pattern = "admin.quimaglet.studio", custom_domain = true }]
 
 [env.admin.vars]
 ROLE = "admin"

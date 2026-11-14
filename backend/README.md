@@ -76,7 +76,7 @@ VITE_CONTENT_API=https://quimaglet-api.＜サブドメイン＞.workers.dev
 
 ## ふだんの使い方
 
-管理画面（`https://quimaglet-admin.＜サブドメイン＞.workers.dev`）を開いて書き換え、**保存** を押します。
+管理画面「quimaglet.studio Dashboard」（`https://admin.quimaglet.studio/`。`https://quimaglet-admin.＜サブドメイン＞.workers.dev` でも開けます）を開いて書き換え、**保存** を押します。
 
 | 項目 | できること |
 | --- | --- |
