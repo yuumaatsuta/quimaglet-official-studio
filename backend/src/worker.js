@@ -86,7 +86,9 @@ export function publicView(doc, now = Date.now()) {
   const news = (doc.news ?? [])
     .filter((n) => n.status !== 'draft' && (!n.publishAt || Date.parse(n.publishAt) <= now))
     .map(({ date = '', title = '', body = '', image = '' }) => ({ date, title, body, image }));
-  return { pages: doc.pages ?? {}, news, members: doc.members ?? [] };
+  // site：検索エンジン・SNS 向けの設定（タイトル・説明文・キーワード・制作者・公式の外部ページ。src/seo.js）
+  const { title = '', description = '', keywords = '', author = '', sameAs = '' } = doc.site ?? {};
+  return { site: { title, description, keywords, author, sameAs }, pages: doc.pages ?? {}, news, members: doc.members ?? [] };
 }
 
 // ---------- 管理画面 ----------
@@ -203,8 +205,16 @@ export function cleanDoc(doc) {
   const news = Array.isArray(doc.news) ? doc.news.slice(0, 500) : [];
   const goods = p.goods ?? {};
   return {
-    // ファビコンとサムネイル（公開側の /site/favicon・/site/og-image が返す）
-    site: { favicon: url(doc.site?.favicon), ogImage: url(doc.site?.ogImage) },
+    // ファビコンとサムネイル（公開側の /site/favicon・/site/og-image が返す）と、検索エンジン・SNS 向けの設定（src/seo.js。空なら既定の文）
+    site: {
+      favicon: url(doc.site?.favicon),
+      ogImage: url(doc.site?.ogImage),
+      title: s(doc.site?.title, 120),
+      description: s(doc.site?.description, 400),
+      keywords: s(doc.site?.keywords, 1000),
+      author: s(doc.site?.author, 200),
+      sameAs: s(doc.site?.sameAs, 3000),
+    },
     pages: {
       about: { title: s(p.about?.title, 200), main: s(p.about?.main), fill: (Array.isArray(p.about?.fill) ? p.about.fill : []).slice(0, 300).map((w) => s(w, 300)) },
       works: page(p.works),

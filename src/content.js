@@ -1,3 +1,5 @@
+import { applySeo } from './seo.js';
+
 // サイトの文章とお知らせ。
 // 中身は public/content.json（管理画面 /admin/ から書き換える）を起動時に読み込んで、下の入れ物を書き換える。
 // 読み込めなかったときは、ここに書いてある仮の文章のまま表示する。
@@ -105,6 +107,8 @@ export async function loadContent(timeoutMs = 4000) {
 }
 
 export function applyContent(data) {
+  // 検索エンジン・SNS 向けの設定（タイトル・説明文など）。管理画面で変えた後、まだ公開し直していなくても反映する
+  applySeo(data?.site, { members: data?.members ?? [] });
   const pages = data?.pages ?? {};
   for (const id of ['works', 'contact']) {
     const page = pages[id];

@@ -3,15 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>QUIMAGLET OFFICIAL STUDIO</title>
-    <meta name="description" content="QUIMAGLET OFFICIAL STUDIO" />
+    <!-- タイトル・説明文・キーワード・制作者・構造化データは管理画面の「サイト設定」から（src/seo.js。公開するときに vite.config.js がここへ書き込む） -->
+    <!-- seo:start -->
+    <title>quimaglet ~きまぐれ~ 公式サイト | QUIMAGLET OFFICIAL STUDIO</title>
+    <!-- seo:end -->
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://quimaglet.studio/" />
+    <link rel="author" href="/humans.txt" />
     <!-- ファビコンとサムネイル（SNS で共有したときの画像）は管理画面で替えられる（backend/ の /site/favicon・/site/og-image） -->
     <link rel="icon" type="image/png" href="%VITE_CONTENT_API%/site/favicon" />
     <link rel="apple-touch-icon" href="%VITE_CONTENT_API%/site/favicon" />
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ja_JP" />
     <meta property="og:site_name" content="QUIMAGLET OFFICIAL STUDIO" />
-    <meta property="og:title" content="QUIMAGLET OFFICIAL STUDIO" />
-    <meta property="og:description" content="QUIMAGLET OFFICIAL STUDIO" />
     <meta property="og:url" content="https://quimaglet.studio/" />
     <meta property="og:image" content="%VITE_CONTENT_API%/site/og-image" />
     <meta property="og:image:width" content="1200" />
@@ -61,7 +65,9 @@
 
     <!-- 文字のロゴは、左手前の床の立体の文字（src/floorLogo.js）。見出しは読み上げ用に残す -->
     <section class="hero">
-      <h1 class="sr-only">QUIMAGLET OFFICIAL STUDIO</h1>
+      <h1 class="sr-only">quimaglet ~きまぐれ~ 公式サイト — QUIMAGLET OFFICIAL STUDIO</h1>
+      <!-- 検索エンジンと読み上げ向けのサイトの説明（管理画面の「サイト設定」の説明文。src/seo.js が書き換える） -->
+      <p class="sr-only" id="site-desc"></p>
       <p class="sr-only" id="immerse-desc">IMMERSE を押すと、マウスの動きや端末の傾きで部屋を見回せます。</p>
       <button type="button" id="immerse" class="immerse" aria-pressed="false" aria-describedby="immerse-desc">
         <svg viewBox="0 0 24 24" aria-hidden="true">
