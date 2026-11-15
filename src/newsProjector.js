@@ -223,6 +223,10 @@ export async function buildNewsProjector({ manager, wallZ, menu }) {
     get shown() {
       return st.on > 0.5 && !st.reading;
     },
+    // 映している絵（main.js で、読み始める前に GPU へ送っておく）
+    get texture() {
+      return card.texture;
+    },
     // ほかのメニューが開いている間は true（画面の外へはける）
     setAway(v) {
       st.away = v;

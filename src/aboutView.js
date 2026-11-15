@@ -60,7 +60,7 @@ const TEXT = `
 <p>Because I myself constantly live with such a sense of loneliness, I write my songs with the hope that they—infused with my own deepest feelings—will reach others who carry that same loneliness.</p>
 <p>I thought I was the one in control, but I became ensnared by words—losing the very things I meant to cherish by lumping them all together under labels like "love." It feels so hollow when words and intentions fail to align. I kept tuning in, frame by frame—even on the days when I couldn't quite get a grip—just to ensure I wouldn't miss a single one of your signals or the messages you sent my way.</p>`;
 
-export function createAboutView({ onOpen, onClose } = {}) {
+export function createAboutView({ onOpen, onClose, guard = (fn) => fn } = {}) {
   const base = import.meta.env.BASE_URL;
   const root = document.createElement('div');
   root.id = 'about-view';
@@ -319,14 +319,45 @@ export function createAboutView({ onOpen, onClose } = {}) {
 
   // ---------- 開く・閉じる ----------
 
-  function show() {
-    if (open) return;
-    open = true;
-    clearTimeout(closeTimer);
-    returnFocus = document.activeElement;
-    root.hidden = false;
-    root.classList.remove('is-closing');
+  // 映す絵を読み込んで、画像の展開（デコード）まで済ませておく。大きな絵なので、開いた後で展開すると
+  // 映り始めのところで 0.3〜0.4 秒止まる。起動が落ち着いた後に裏で済ませ（main.js）、まだなら開く前に待つ
+  let ready = null;
+  let readyMode = '';
+  function prepare() {
     layout();
+    if (ready && readyMode === mode) return ready;
+    readyMode = mode;
+    const els = shownEls();
+    ready = Promise.all(els.map((el) => el.decode?.().catch(() => {}))).then(() => {
+      // 押した所が透明かを見る下ごしらえも、手の空いたときに 1 枚ずつ
+      const idle = window.requestIdleCallback ?? ((f) => setTimeout(f, 50));
+      els.forEach((el) => idle(() => maskFor(el)));
+    });
+    return ready;
+  }
+  const shownEls = () => (mode === 'pc' ? Object.values(pieceEls).filter((el) => !el.hidden) : [phoneEl]);
+
+  let openSeq = 0;
+  async function show() {
+    if (open) return;
+    const seq = ++openSeq;
+    await prepare();
+    if (open || seq !== openSeq) return; // 待っている間に閉じられた・もう一度押された
+    // ほとんど透明なまま一度置き、絵を画面に描く下ごしらえ（大きな絵の縮小・GPU への転送）を済ませてから映し始める。
+    // 映り始めと同時に行うと、そこで 0.2〜0.3 秒止まる
+    clearTimeout(closeTimer);
+    root.classList.remove('is-closing');
+    root.classList.add('is-warming');
+    root.hidden = false;
+    layout();
+    for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
+    root.classList.remove('is-warming');
+    if (open || seq !== openSeq) {
+      if (!open) root.hidden = true;
+      return;
+    }
+    open = true;
+    returnFocus = document.activeElement;
     scroller.scrollTop = 0;
     scroller.scrollLeft = 0;
     requestAnimationFrame(() => root.classList.add('is-open'));
@@ -341,6 +372,7 @@ export function createAboutView({ onOpen, onClose } = {}) {
   }
 
   function hide() {
+    openSeq++;
     if (!open) return;
     open = false;
     root.classList.remove('is-open');
@@ -358,17 +390,19 @@ export function createAboutView({ onOpen, onClose } = {}) {
     }, 420);
   }
 
-  // 押した所が絵の透明な所（文字も写真もない所）か。絵ごとに、読み込んだら一度だけ小さく写して透明度を控えておく
+  // 押した所が絵の透明な所（文字も写真もない所）か。絵ごとに一度だけ小さく写して透明度を控えておく
+  // （読み込んだその場で写すと重いので、手の空いたときか、初めて押したときに）
   const masks = new Map();
-  for (const el of [...Object.values(pieceEls), phoneEl]) {
-    el.addEventListener('load', () => {
+  function maskFor(el) {
+    if (!masks.has(el) && el.complete && el.naturalWidth) {
       const c = document.createElement('canvas');
       c.width = Math.max(1, Math.round(el.naturalWidth / 8));
       c.height = Math.max(1, Math.round(el.naturalHeight / 8));
       const g = c.getContext('2d', { willReadFrequently: true });
       g.drawImage(el, 0, 0, c.width, c.height);
       masks.set(el, { w: c.width, h: c.height, a: g.getImageData(0, 0, c.width, c.height).data });
-    });
+    }
+    return masks.get(el);
   }
   function onInk(e) {
     const els = mode === 'pc' ? Object.values(pieceEls).filter((el) => !el.hidden) : [phoneEl];
@@ -377,7 +411,7 @@ export function createAboutView({ onOpen, onClose } = {}) {
       const u = (e.clientX - r.left) / r.width;
       const v = (e.clientY - r.top) / r.height;
       if (u < 0 || u > 1 || v < 0 || v > 1) continue;
-      const m = masks.get(el);
+      const m = maskFor(el);
       if (!m) return true;
       // 押した所のまわり（文字の隙間を押しても閉じないよう、少し広く）に色があるか
       const cx = Math.floor(u * m.w);
@@ -392,8 +426,9 @@ export function createAboutView({ onOpen, onClose } = {}) {
     return false;
   }
   // 何もない所を押したら閉じる（スクロールのためのドラッグでは click が来ないので閉じない）
+  const hideTap = guard(() => hide());
   root.addEventListener('click', (e) => {
-    if (!onInk(e)) hide();
+    if (!onInk(e)) hideTap();
   });
   addEventListener('keydown', (e) => e.key === 'Escape' && hide());
   // スマホ版をスクロールしている間は、左上のロゴを隠す（文字に重なるので）
@@ -405,6 +440,7 @@ export function createAboutView({ onOpen, onClose } = {}) {
   return {
     open: show,
     close: hide,
+    prepare,
     get isOpen() {
       return open;
     },

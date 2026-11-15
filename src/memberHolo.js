@@ -201,14 +201,8 @@ export function createMemberHolo(scene) {
 
   let shownFor = null;
   return {
-    // 初めて開くときに止まらないよう、シェーダーを先に組み立てておく（見えない物は組み立てられないので、その間だけ見せる）
-    warm(renderer, camera) {
-      group.visible = true;
-      return renderer
-        .compileAsync(group, camera, scene)
-        .catch(() => {})
-        .finally(() => (group.visible = false));
-    },
+    // 初めて開くときに止まらないよう、main.js の warmUp でシェーダーを先に組み立てておく
+    group,
     // 名前を描き直す（同じメンバーなら描かない）
     set(member) {
       if (shownFor === member) return;

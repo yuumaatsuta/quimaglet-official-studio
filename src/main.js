@@ -297,6 +297,31 @@ async function warmPrograms() {
   }
 }
 
+// 起動の後で初めて見せる物（メンバーの名前・Goods の紙）のシェーダーを、裏で組み立てて最初の下調べまで済ませる。
+// これをしないと、初めて見せたフレームで 0.2 秒ほど止まる（ちょうど動き出すところなので目立つ）。
+// 見えない物は組み立てられないので、組み立てを始める一瞬だけ見せる（描く前に戻すので、画面には出ない）
+const warmed = new Map();
+function warmUp(key, obj) {
+  if (!obj) return Promise.resolve();
+  if (!warmed.has(key)) {
+    const job = (async () => {
+      const was = obj.visible;
+      obj.visible = true;
+      let compiling;
+      try {
+        compiling = renderer.compileAsync(obj, camera, scene);
+      } finally {
+        obj.visible = was;
+      }
+      await compiling;
+      await allReady(renderer);
+      await warmPrograms();
+    })().catch(() => {});
+    warmed.set(key, job);
+  }
+  return warmed.get(key);
+}
+
 if (weather) {
   // 最初の 1 回はすぐに切り替え、以降はなめらかに移り変わらせる
   let shown = false;
@@ -426,11 +451,12 @@ function zoomOut() {
   if (member.key) closeMember();
 }
 
-zoomBack.addEventListener('click', zoomOut);
+const zoomOutTap = act(zoomOut);
+zoomBack.addEventListener('click', zoomOutTap);
 addEventListener('keydown', (e) => e.key === 'Escape' && zoomOut());
 // ズーム中は画面のどこを押しても戻る（お知らせを読んでいる間は、下のボタンか Esc で）
 addEventListener('pointerup', (e) => {
-  if (zoom.to && zoom.amount > 0.6 && e.target.tagName === 'CANVAS' && news.index < 0) zoomOut();
+  if (zoom.to && zoom.amount > 0.6 && e.target.tagName === 'CANVAS' && news.index < 0) zoomOutTap();
 });
 
 const ease = (x) => x * x * (3 - 2 * x);
@@ -451,6 +477,27 @@ function updateZoom(dt) {
   // eyeX：目だけを窓の中心から横へずらす（窓はそのままで、横を向いた物を正面寄りから見る。メンバーの HB）
   shownWin.eyeX = THREE.MathUtils.lerp(win.eyeX ?? 0, fw.eyeX ?? 0, k);
   return k;
+}
+
+// ---------- 連続タップ対策 ----------
+// 切り替えを始めたら、少しの間（hold 秒）と、準備（画像の用意・シェーダーの組み立て）を待っている間は、次の操作を受け付けない。
+// 2 度押し・連打で、開いた物がすぐ閉じたり、別の物と取り合って動きが乱れたり、リンクが何枚も開いたりしないように
+const tapGate = { until: 0, busy: false };
+function act(fn, hold = 0.45) {
+  return (...args) => {
+    const now = performance.now();
+    if (tapGate.busy || now < tapGate.until) return undefined;
+    tapGate.until = now + hold * 1000;
+    const r = fn(...args);
+    if (r && typeof r.then === 'function') {
+      tapGate.busy = true;
+      r.catch(() => {}).finally(() => {
+        tapGate.busy = false;
+        tapGate.until = performance.now() + hold * 1000;
+      });
+    }
+    return r;
+  };
 }
 
 // ---------- クリックできる家具とパネル ----------
@@ -474,10 +521,11 @@ const hotspots = createHotspots({
   sections: SECTIONS,
   tooltip,
   highlightColor: CONFIG.highlightColor,
-  onSelect: (id) => (id.startsWith('member:') ? openMember(id.slice(7)) : zoomTo(id) || requestSection(id)),
+  onSelect: act((id) => (id.startsWith('member:') ? openMember(id.slice(7)) : zoomTo(id) || requestSection(id))),
 });
 const panel = createPanel(SECTIONS, {
-  onRequest: requestSection,
+  guard: act,
+  onRequest: act(requestSection),
   onOpen: () => {
     zoomOut();
     hotspots.setEnabled(false);
@@ -495,6 +543,7 @@ const panel = createPanel(SECTIONS, {
 // About だけは、ホログラムではなく画面いっぱいの文字で見せる（aboutView.js）。
 // 読んでいる間、お知らせのロボットは画面の外へはけ、往復するロボットがときどき目の前までのぞきに来る
 const about = createAboutView({
+  guard: act,
   onOpen: () => {
     zoomOut();
     hotspots.setEnabled(false);
@@ -529,7 +578,9 @@ async function openGoods() {
   goods.releaseIn = -1;
   document.body.classList.add('is-goods'); // 紙に重なる IMMERSE ボタンを隠す
   history.replaceState(null, '', '#goods');
+  // 紙の絵とシェーダーを用意し終えてから、ロボットを動かす（運んでくる途中で止まらないように）
   await drawGoods();
+  await warmUp('goods', goodsPaper.group);
   if (!goods.open) return;
   room.robot.deliver(goodsPaper.size);
   // 読み上げ・キーボード用に、同じ中身を見えない文章でも置く（購入ページのリンクもここから辿れる）
@@ -653,6 +704,8 @@ function showNews(i) {
   news.aspect = newsAspect();
   const article = NEWS_LIST[i];
   p.read(article, { aspect: news.aspect, index: i, total: NEWS_LIST.length });
+  // 描いた記事の絵は、ここで GPU へ送っておく（寄っていく途中の最初のフレームで送ると、そこで止まる）
+  renderer.initTexture(p.texture);
   // 前の記事＝ひとつ古い記事、次の記事＝ひとつ新しい記事（一覧は新しい順）
   newsNav.querySelector('[data-news-go="prev"]').disabled = i >= NEWS_LIST.length - 1;
   newsNav.querySelector('[data-news-go="next"]').disabled = i <= 0;
@@ -692,7 +745,9 @@ function endNews() {
   if (/^#news-\d+$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
 }
 
-newsNav.addEventListener('click', (e) => newsGo(e.target.closest('[data-news-go]')?.dataset.newsGo));
+newsNav.addEventListener('click', (e) => newsGoTap(e.target.closest('[data-news-go]')?.dataset.newsGo));
+// 前・次の記事は続けて送れるよう、間を短めに
+const newsGoTap = act((go) => newsGo(go), 0.25);
 function newsGo(go) {
   if (!go || news.index < 0) return;
   if (go === 'prev') showNews(Math.min(NEWS_LIST.length - 1, news.index + 1));
@@ -718,12 +773,12 @@ function hitNewsCard(x, y) {
 function pressNews(x, y) {
   const uv = hitNewsCard(x, y);
   if (!uv) {
-    if (zoom.amount > 0.6) zoomOut();
+    if (zoom.amount > 0.6) zoomOutTap();
     return;
   }
   const a = room.newsProjector.actionAt(uv);
-  if (a?.url) window.open(a.url, '_blank', 'noopener');
-  else if (a?.go) newsGo(a.go);
+  if (a?.url) openLink(a.url);
+  else if (a?.go) newsGoTap(a.go);
 }
 addEventListener('keydown', (e) => {
   if (news.index < 0) return;
@@ -737,7 +792,7 @@ addEventListener('resize', () => {
 // ホログラムの一覧で記事を押したとき
 document.getElementById('panel-body').addEventListener('click', (e) => {
   const item = e.target.closest('[data-news]');
-  if (item) openNews(Number(item.dataset.news));
+  if (item) openNewsTap(Number(item.dataset.news));
 });
 
 // 壁に映っている最新のお知らせを押したか（手前に家具などがあればそちらが先）
@@ -796,15 +851,28 @@ addEventListener('pointerup', (e) => {
     const hit = hitGoodsPaper(e.clientX, e.clientY);
     if (hit) {
       const url = goodsPaper.linkAt(hit.uv);
-      if (url) window.open(url, '_blank', 'noopener');
-    } else if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
-    else closeGoods();
+      if (url) openLink(url);
+    } else if (hitRobot(e.clientX, e.clientY)) poke();
+    else closeGoodsTap();
     return;
   }
-  if (hitRobot(e.clientX, e.clientY)) room.robot.poke();
-  else if (hitMoon(e.clientX, e.clientY)) room.planetarium.toggle();
-  else if (hitNewsWall(e.clientX, e.clientY)) openNews(0);
+  if (hitRobot(e.clientX, e.clientY)) poke();
+  else if (hitMoon(e.clientX, e.clientY)) toggleSky();
+  else if (hitNewsWall(e.clientX, e.clientY)) openNewsTap(0);
 });
+// 連打されても、リンクは 1 枚だけ開く・月は行ったり来たりしない（星空を映すとシャッターと光が切り替わるので、長めに待つ）
+const openLink = act((url) => window.open(url, '_blank', 'noopener'), 1);
+const closeGoodsTap = act(() => closeGoods());
+const openNewsTap = act((i) => openNews(i));
+const toggleSky = act(() => room.planetarium.toggle(), 1.2);
+// ロボットを押したときは跳ねるだけなので、ほかの操作は止めない（跳ね直しだけ少し間を空ける）
+let pokedAt = 0;
+function poke() {
+  const now = performance.now();
+  if (now - pokedAt < 350) return;
+  pokedAt = now;
+  room.robot.poke();
+}
 addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') robotPointer = { x: e.clientX, y: e.clientY, dirty: true };
 });
@@ -843,7 +911,7 @@ const MEMBER = {
   tall: { width: 1.06, top: 1.6, bottom: 0.5, name: 1.81, view: { w: 1.14, top: 1.96 }, lean: 0 },
 };
 const member = { key: null, beam: 0, beamTo: 0 };
-const memberCard = createMemberCard({ onClose: () => zoomOut() });
+const memberCard = createMemberCard({ onClose: () => zoomOutTap() });
 const memberHolo = createMemberHolo(scene);
 // 開いた瞬間に重くならないよう、写真を先に読んでおく。名前のシェーダーは起動が落ち着いてから（onSettled）
 setTimeout(() => {
@@ -882,11 +950,13 @@ function memberWindow(chipObj, instrument) {
   return { cx: chip.x + lean, cy: (L.view.top + low) / 2 - b / 2, cz: chip.z + MEMBER.front, halfW: halfH * aspect, halfH, eyeX };
 }
 
-function openMember(key) {
+async function openMember(key) {
   const m = room.members?.get(key);
   const info = memberFor(key);
   const chip = m?.chip();
   if (!chip || !info) return;
+  // 名前の立体の文字のシェーダーを用意し終えてから寄り始める（ふだんは起動の後に済んでいるので待たない）
+  await warmUp('member', memberHolo.group);
   // ほかに開いているもの・呼んでいるものはやめる
   if (holo.pending) {
     holo.pending = null;
@@ -997,8 +1067,7 @@ function requestSection(id) {
     }
     if (panel.isOpen) panel.close();
     if (about.isOpen) about.close();
-    openGoods();
-    return;
+    return openGoods();
   }
   dropGoods();
   if (id === 'about') {
@@ -1009,8 +1078,7 @@ function requestSection(id) {
       room.robot?.release({ win });
     }
     if (panel.isOpen) panel.close();
-    about.open();
-    return;
+    return about.open();
   }
   if (about.isOpen) about.close();
   if (!room.robot || panel.isOpen) return panel.open(id);
@@ -1114,6 +1182,18 @@ function drawBeam(flicker) {
   beamCtx.globalCompositeOperation = 'source-over';
 }
 
+// 起動が落ち着いたら、あとで初めて見せる物を 1 つずつ間を空けて用意しておく（押したときに待たせない・止めない）
+async function warmAfterSettle() {
+  const pause = (s) => new Promise((r) => setTimeout(r, s * 1000));
+  await warmUp('member', memberHolo.group);
+  await pause(1);
+  await drawGoods();
+  await pause(0.5);
+  await warmUp('goods', goodsPaper.group);
+  await pause(1);
+  await about.prepare();
+}
+
 // ---------- ループ ----------
 
 // ?perf を付けると、1 フレームの描画の量を window.__perf に数える（重さを測るとき用）
@@ -1122,6 +1202,21 @@ if (perf) {
   renderer.info.autoReset = false;
   window.__perf = perf;
   Object.defineProperty(perf, 'three', { value: { THREE, scene, renderer, camera } });
+  // 画面の切り替えを外から呼んで、止まる長さを測る（?perf を付けたときだけ。ブラウザの開発ツールなどから呼ぶ）
+  Object.defineProperty(perf, 'act', {
+    value: {
+      section: (id) => requestSection(id),
+      member: (key) => openMember(key),
+      members: () => [...(room.members?.keys() ?? [])],
+      news: (i) => openNews(i),
+      back: () => zoomOut(),
+      closeAll: () => (panel.close(), about.close(), closeGoods(), zoomOut()),
+      zoom: (id) => zoomTo(id),
+      focusIds: () => [...(room.focus?.keys() ?? [])],
+      sky: () => room.planetarium?.toggle(),
+      poke: () => room.robot?.poke(),
+    },
+  });
 }
 
 // GPU が追いつかない端末でだけ、描く解像度を下げる（adaptiveResolution.js）
@@ -1188,8 +1283,7 @@ renderer.setAnimationLoop((now) => {
     settledFor += dt;
     if (settledFor > 2) {
       settled = true;
-      memberHolo.warm(renderer, camera);
-      setTimeout(drawGoods, 1500);
+      warmAfterSettle();
     }
   }
   // 夜なら、プラネタリウムの光を点けた形のシェーダーを用意しておく（月を押したときに止まらないように）

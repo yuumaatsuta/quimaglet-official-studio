@@ -19,7 +19,11 @@ export function createInput() {
   let gyroReady = false;
 
   const button = document.getElementById('immerse');
+  let pressedAt = -1e9;
   button?.addEventListener('click', async () => {
+    // 2 度押しで入って出てしまわないよう、続けて押されたら受け付けない
+    if (performance.now() - pressedAt < 400) return;
+    pressedAt = performance.now();
     state.enabled = !state.enabled;
     button.setAttribute('aria-pressed', String(state.enabled));
     document.documentElement.classList.toggle('is-immersed', state.enabled);

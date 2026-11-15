@@ -308,6 +308,13 @@ body:not(.is-holo) .holo-beam {
     holo-flicker 5s 0.7s infinite;
 }
 
+/* 映し始める前の下ごしらえ（panel.js）。ほとんど透明なまま置いて、描く準備だけ済ませる */
+.panel.is-warming {
+  animation: none;
+  opacity: 0.01;
+  pointer-events: none;
+}
+
 /* 上辺の光の線から下へ広がりながら、ちらついて映る */
 @keyframes holo-in {
   0% {
@@ -479,6 +486,12 @@ body:not(.is-holo) .holo-beam {
 }
 .about-view.is-open {
   opacity: 1;
+}
+/* 開く前の下ごしらえ（aboutView.js）。ほとんど透明なまま置いて、絵を描く準備だけ済ませる */
+.about-view.is-warming {
+  opacity: 0.01;
+  transition: none;
+  pointer-events: none;
 }
 body.is-about .site-header {
   z-index: 5;
