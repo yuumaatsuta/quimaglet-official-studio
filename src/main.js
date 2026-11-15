@@ -28,10 +28,12 @@ const bootLabel = document.getElementById('boot-label');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 setTextureUploader(renderer);
 useRenderer(renderer);
-// 描く解像度の上限と下限。スマホは画面が小さく画素が細かいので、低い解像度だと荒さが目立つ。上限を上げ、下げすぎないようにする
+// 描く解像度の上限と下限。スマホは画面が小さく画素が細かいので、低い解像度だと荒さが目立つ。上限を上げ、下げすぎないようにする。
 const touchScreen = isTouchDevice();
-const maxPixelRatio = Math.min(devicePixelRatio, touchScreen ? 2 : 1.75);
-const minPixelRatio = touchScreen ? Math.max(1, maxPixelRatio * 0.75) : Math.max(0.6, maxPixelRatio * 0.6);
+// PC も高解像度の画面（表示拡大 150%・200%）は画面の細かさまで描き、ふつうの画面（100%）は少し細かく描いて縮める（縁のギザギザが減る）。
+// 重い端末では、自動で下げる（adaptiveResolution.js）。下げても 7 割まで
+const maxPixelRatio = touchScreen ? Math.min(devicePixelRatio, 2) : Math.min(2, Math.max(devicePixelRatio, 1.25));
+const minPixelRatio = touchScreen ? Math.max(1, maxPixelRatio * 0.75) : Math.max(0.8, maxPixelRatio * 0.7);
 renderer.setPixelRatio(startRatio(maxPixelRatio, minPixelRatio));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
