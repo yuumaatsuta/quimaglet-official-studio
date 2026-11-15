@@ -565,7 +565,7 @@ goodsPaper.group.visible = false;
 room.robot?.carry?.add(goodsPaper.group);
 // 紙の絵は手間がかかる（紙の質感と文字を描く）ので、起動中には描かない。起動が落ち着いた後か、開いたときに描く
 let goodsReady = null;
-const drawGoods = () => (goodsReady ??= goodsPaper.draw(GOODS));
+const drawGoods = () => (goodsReady ??= goodsPaper.draw(GOODS, { maxTexture: renderer.capabilities.maxTextureSize }));
 const goodsSr = document.getElementById('goods-sr');
 const goods = { open: false, releaseIn: -1 };
 const GOODS_ROLL_UP = 0.55; // 閉じるとき、紙を巻き上げてから帰るまで（秒）
@@ -582,6 +582,11 @@ async function openGoods() {
   await drawGoods();
   await warmUp('goods', goodsPaper.group);
   if (!goods.open) return;
+  // 前に写真を大きくしたままなら、ふだんの並びに戻してから持ってくる
+  if (goodsPaper.focus >= 0) {
+    await goodsPaper.setFocus(-1, { instant: true });
+    renderer.initTexture(goodsPaper.texture);
+  }
   room.robot.deliver(goodsPaper.size);
   // 読み上げ・キーボード用に、同じ中身を見えない文章でも置く（購入ページのリンクもここから辿れる）
   goodsSr.innerHTML = `<h2>${SECTIONS.goods.title}</h2>${SECTIONS.goods.body}`;
@@ -850,8 +855,10 @@ addEventListener('pointerup', (e) => {
     // 紙の中ならリンクだけ、ロボットなら跳ねる、それ以外（紙の外）を押したら閉じる
     const hit = hitGoodsPaper(e.clientX, e.clientY);
     if (hit) {
-      const url = goodsPaper.linkAt(hit.uv);
-      if (url) openLink(url);
+      // 写真なら大きく載せる（大きな写真なら戻す）、文字なら購入ページ
+      const a = goodsPaper.actionAt(hit.uv);
+      if (a?.url) openLink(a.url);
+      else if (a && 'focus' in a) focusGoods(a.focus);
     } else if (hitRobot(e.clientX, e.clientY)) poke();
     else closeGoodsTap();
     return;
@@ -861,6 +868,10 @@ addEventListener('pointerup', (e) => {
   else if (hitNewsWall(e.clientX, e.clientY)) openNewsTap(0);
 });
 // 連打されても、リンクは 1 枚だけ開く・月は行ったり来たりしない（星空を映すとシャッターと光が切り替わるので、長めに待つ）
+// 紙の並びを替える。描き直した紙の画像は、ここで GPU へ送っておく（移り変わる最初のフレームで止まらないように）
+const focusGoods = act(async (i) => {
+  if (await goodsPaper.setFocus(i)) renderer.initTexture(goodsPaper.texture);
+}, 0.5);
 const openLink = act((url) => window.open(url, '_blank', 'noopener'), 1);
 const closeGoodsTap = act(() => closeGoods());
 const openNewsTap = act((i) => openNews(i));
@@ -889,7 +900,7 @@ function updateRobotHover() {
   const over = news.index >= 0
     ? !!newsAction
     : goods.open
-    ? !!goodsPaper.linkAt(hitGoodsPaper(robotPointer.x, robotPointer.y)?.uv)
+    ? !!goodsPaper.actionAt(hitGoodsPaper(robotPointer.x, robotPointer.y)?.uv)
     : !panel.isOpen &&
       (hitRobot(robotPointer.x, robotPointer.y) || hitMoon(robotPointer.x, robotPointer.y) || hitNewsWall(robotPointer.x, robotPointer.y));
   if (over === robotHovered) return;
@@ -1215,6 +1226,7 @@ if (perf) {
       focusIds: () => [...(room.focus?.keys() ?? [])],
       sky: () => room.planetarium?.toggle(),
       poke: () => room.robot?.poke(),
+      goodsFocus: (i) => focusGoods(i),
     },
   });
 }

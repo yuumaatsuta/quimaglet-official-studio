@@ -4,17 +4,20 @@ import * as THREE from 'three';
 // ロボットの底のマグネット（robot.glb の底の中央）に、紙の上端を巻き付けた金属の棒がくっついている。
 // 紙は少し古びた色で、手書きの字で、グッズを 2 列に並べる。近くに来ると下へ巻物のように広がる。
 // 中身が多くて 1 枚に収まらないときは、スクロールすると上の棒に紙が巻き取られ、下の続きが出てくる。
+// グッズの写真を押すと、紙の中の並びが替わって、そのグッズが紙の幅いっぱいに大きく載る（もう一度押すか ← all items で戻る）。
 // 中身は content.js の GOODS（管理画面 /admin/ の Goods）
 
 const PAPER = {
   width: 0.4, // 紙の幅（m）
   px: 1100, // 紙の横の画素数（組み版の単位）
   view: 1.42, // 一度に見える紙の高さ（幅に対する比）。中身がこれより長いとスクロールする
-  maxTexture: 4096, // 画像の高さの上限（スマホの GPU に収める。長いときは全体を縮めて描く）
+  res: 1.25, // 組み版の 1 画素を、画像の何画素で描くか（大きいほど字がくっきり）
+  maxTexture: 8192, // 画像の縦横の上限（GPU の上限がこれより小さければそちら。長いときは全体を縮めて描く）
   rodRadius: 0.0065,
   rollRadius: 0.012, // 棒に巻き付けた紙の太さ（巻き取る前）
   thickness: 0.0026, // 巻き取ったときに太る紙の厚み（見えるよう実物より厚め）
   unrollSeconds: 0.9,
+  swapSeconds: 0.45, // 並びを替えるとき、前の絵から次の絵へ移り変わる時間
 };
 const SWAY_MAX = 0.2; // 揺れの最大（rad）
 
@@ -52,11 +55,12 @@ export function createGoodsPaper() {
   pivot.add(rod, knobL, knobR);
 
   // 紙。canvas に全体を描き、見えている範囲だけを貼る（texture の repeat / offset でずらす）
-  const canvas = document.createElement('canvas');
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  let texture = paperTexture(document.createElement('canvas'));
   const reveal = { value: 0 };
+  // 並びを替えるときは、前の絵（uPrev。そのときの見えていた範囲 uPrevUv = (offset.y, repeat.y)）から次の絵へ移り変わる
+  const prevTex = { value: null };
+  const prevUv = { value: new THREE.Vector2(0, 1) };
+  const mix = { value: 1 };
   const paperMat = new THREE.MeshStandardMaterial({
     map: texture,
     emissive: '#ffffff',
@@ -68,12 +72,38 @@ export function createGoodsPaper() {
   // 上から下へ広がる（巻物を下ろす）。紙の板の uv の y は上端が 1
   paperMat.onBeforeCompile = (shader) => {
     shader.uniforms.uReveal = reveal;
+    shader.uniforms.uPrev = prevTex;
+    shader.uniforms.uPrevUv = prevUv;
+    shader.uniforms.uMix = mix;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying float vPaperV;')
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvPaperV = uv.y;');
+      .replace('#include <common>', '#include <common>\nvarying vec2 vPaperUv;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvPaperUv = uv;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uReveal;\nvarying float vPaperV;')
-      .replace('#include <map_fragment>', 'if (vPaperV < 1.0 - uReveal) discard;\n#include <map_fragment>');
+      .replace(
+        '#include <common>',
+        '#include <common>\n#define PAPER_BIAS -0.7\nuniform float uReveal;\nuniform float uMix;\nuniform sampler2D uPrev;\nuniform vec2 uPrevUv;\nvarying vec2 vPaperUv;',
+      )
+      .replace(
+        '#include <map_fragment>',
+        [
+          'if (vPaperUv.y < 1.0 - uReveal) discard;',
+          // 画面では紙が小さく映るので、縮めた画像（ミップマップ）を少し細かい段から取る（細い字がぼやけて薄くならないように）
+          'vec4 sampledDiffuseColor = texture2D(map, vMapUv, PAPER_BIAS);',
+          'diffuseColor *= sampledDiffuseColor;',
+          'vec4 prevTexel = texture2D(uPrev, vec2(vPaperUv.x, uPrevUv.x + vPaperUv.y * uPrevUv.y), PAPER_BIAS);',
+          'if (uMix < 1.0) diffuseColor.rgb = mix(prevTexel.rgb, diffuseColor.rgb, uMix);',
+        ].join('\n'),
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        [
+          '#ifdef USE_EMISSIVEMAP',
+          'vec4 emissiveColor = texture2D(emissiveMap, vEmissiveMapUv, PAPER_BIAS);',
+          'if (uMix < 1.0) emissiveColor = mix(prevTexel, emissiveColor, uMix);',
+          'totalEmissiveRadiance *= emissiveColor.rgb;',
+          '#endif',
+        ].join('\n'),
+      );
   };
   const rollMat = new THREE.MeshStandardMaterial({ color: '#d9c9a4', emissive: '#d9c9a4', emissiveIntensity: 0.25, roughness: 0.95 });
 
@@ -98,7 +128,10 @@ export function createGoodsPaper() {
   // 組み版の寸法（画素。canvas は大きすぎると縮めて描くので、組み版の単位で持つ）
   const page = { w: PAPER.px, h: PAPER.px * PAPER.view, view: PAPER.px * PAPER.view };
   const scroll = { now: 0, target: 0 };
-  let regions = []; // 押せる所（購入ページへのリンク）。組み版の画素で { x, y, w, h, url }
+  let regions = []; // 押せる所。組み版の画素で { x, y, w, h, url }（購入ページ）か { ..., focus }（写真：大きくする・戻す）
+  let source = null; // 描く中身 { goods, images, maxTexture }
+  let focus = -1; // 大きく載せているグッズ（-1 ならふだんの 2 列）
+  const fade = { t: 1, old: null };
 
   function buildPaperMesh() {
     if (paper) {
@@ -122,33 +155,86 @@ export function createGoodsPaper() {
     pivot.add(paper);
   }
 
-  // 中身を描く。フォントが届いてから描く（届く前に描くと別の字体になる）
-  async function draw(goods) {
+  // 中身を描く。フォントが届いてから描く（届く前に描くと別の字体になる）。
+  // maxTexture：GPU の画像の大きさの上限（main.js が renderer から渡す）
+  async function draw(goods, { maxTexture = 4096 } = {}) {
     await Promise.all([
       document.fonts.load(`700 40px "Caveat"`),
       document.fonts.load(`500 40px "Caveat"`),
       document.fonts.load(`400 30px "Yomogi"`, 'グッズ'),
     ]).catch(() => {});
     const images = await Promise.all((goods.items ?? []).map((it) => loadImage(it.image)));
-    const W = PAPER.px;
-    const ctx = canvas.getContext('2d');
-    // 1 回目で高さを測り、2 回目で描く
-    canvas.width = 8;
-    canvas.height = 8;
-    const contentH = Math.max(Math.round(W * PAPER.view), layout(ctx, goods, images, W, false).height);
-    const s = Math.min(1, PAPER.maxTexture / contentH);
-    canvas.width = Math.round(W * s);
-    canvas.height = Math.round(contentH * s);
-    ctx.setTransform(s, 0, 0, s, 0, 0);
-    agedPaper(ctx, W, contentH);
-    regions = layout(ctx, goods, images, W, true).regions;
-    texture.needsUpdate = true;
-    page.h = contentH;
-    page.view = Math.min(contentH, W * PAPER.view);
-    viewH = (PAPER.width * page.view) / W;
+    source = { goods, images, maxTexture: Math.min(PAPER.maxTexture, maxTexture) };
+    focus = -1;
+    swapTexture(await render(focus), true);
+    page.view = Math.min(page.h, PAPER.px * PAPER.view);
+    viewH = (PAPER.width * page.view) / PAPER.px;
     scroll.now = scroll.target = 0;
     applyScroll();
     buildPaperMesh();
+  }
+
+  // 組み版を 1 枚の画像に描く。f：大きく載せるグッズ。
+  // 描くのに手間がかかるので、少しずつ区切って描く（その間も部屋の動きは止めない）
+  async function render(f) {
+    const { goods, images, maxTexture } = source;
+    const W = PAPER.px;
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    // 1 回目で高さを測り、2 回目で描く
+    c.width = 8;
+    c.height = 8;
+    const contentH = Math.max(Math.round(W * PAPER.view), (await layout(ctx, goods, images, W, false, f)).height);
+    const s = Math.min(PAPER.res, maxTexture / contentH, maxTexture / W);
+    c.width = Math.round(W * s);
+    c.height = Math.round(contentH * s);
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+    // 紙の地（細かな繊維を何万も描くので重い）は一度だけ描いて取っておき、並びを替えるときは写すだけにする
+    const g = paperGround(W, contentH, s);
+    ctx.drawImage(g.canvas, 0, 0, W * g.s, contentH * g.s, 0, 0, W, contentH);
+    const out = await layout(ctx, goods, images, W, true, f);
+    return { texture: paperTexture(c), height: contentH, regions: out.regions, anchors: out.anchors };
+  }
+
+  // 描いた画像に貼り替える。instant でなければ、今の絵から少しずつ移り変わる
+  function swapTexture(r, instant) {
+    if (fade.old) {
+      fade.old.dispose();
+      fade.old = null;
+    }
+    if (instant) {
+      texture.dispose();
+      prevTex.value = null;
+      fade.t = 1;
+      mix.value = 1;
+    } else {
+      prevTex.value = texture;
+      prevUv.value.set(texture.offset.y, texture.repeat.y);
+      fade.old = texture;
+      fade.t = 0;
+      mix.value = 0;
+    }
+    texture = r.texture;
+    paperMat.map = texture;
+    paperMat.emissiveMap = texture;
+    regions = r.regions;
+    page.h = r.height;
+  }
+
+  // グッズ i を大きく載せる（-1 でふだんの 2 列に戻す）。並びを替えたら、そのグッズが見える所までスクロールする
+  let rendering = false;
+  async function setFocus(i, { instant = false } = {}) {
+    if (!source || i === focus || rendering) return false;
+    if (!instant && (reveal.value < 0.98 || fade.t < 1)) return false;
+    const was = focus;
+    focus = i;
+    rendering = true;
+    const r = await render(i).finally(() => (rendering = false));
+    swapTexture(r, instant);
+    const at = i >= 0 ? r.anchors.focus : r.anchors[was];
+    scroll.now = scroll.target = THREE.MathUtils.clamp((at ?? 0) - 40, 0, maxScroll());
+    applyScroll();
+    return true;
   }
 
   function applyScroll() {
@@ -189,6 +275,15 @@ export function createGoodsPaper() {
     if (!back) unroll = target > unroll ? Math.min(target, unroll + step) : Math.max(target, unroll - step * 1.4);
     const u = unroll * unroll * (3 - 2 * unroll);
     reveal.value = u;
+    if (fade.t < 1) {
+      fade.t = Math.min(1, fade.t + dt / PAPER.swapSeconds);
+      mix.value = fade.t * fade.t * (3 - 2 * fade.t);
+      if (fade.t === 1) {
+        prevTex.value = null;
+        fade.old?.dispose();
+        fade.old = null;
+      }
+    }
 
     // スクロール：なめらかに追いかける
     scroll.target = THREE.MathUtils.clamp(scroll.target, 0, maxScroll());
@@ -263,20 +358,28 @@ export function createGoodsPaper() {
     return true;
   }
 
-  // 押した所（紙の uv）にあるリンク
-  function linkAt(uv) {
-    if (!uv || uv.y < 1 - reveal.value) return null;
+  // 押した所（紙の uv）にあるもの：{ url }（購入ページ）か { focus }（写真：大きくする・戻す）か null
+  function actionAt(uv) {
+    if (!uv || uv.y < 1 - reveal.value || fade.t < 1) return null;
     const x = uv.x * page.w;
     const y = (1 - uv.y) * page.view + scroll.now;
-    return regions.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)?.url ?? null;
+    return regions.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) ?? null;
   }
 
   return {
     group,
     draw,
     update,
-    linkAt,
+    actionAt,
+    setFocus,
     scrollBy,
+    get focus() {
+      return focus;
+    },
+    // 今の紙の画像（main.js で、並びを替えたらすぐ GPU へ送る）
+    get texture() {
+      return texture;
+    },
     get paper() {
       return paper;
     },
@@ -387,7 +490,30 @@ function hoverUnit(side, rodLength) {
   };
 }
 
+function paperTexture(canvas) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
 // ---------- 紙の地 ----------
+
+// 描いた紙の地を取っておく（倍率 s ごと。足りなくなったら、1 枚分の余裕を持たせて描き直す）
+let ground = null;
+function paperGround(W, H, s) {
+  if (!ground || ground.s < s - 1e-3 || ground.H < H) {
+    const gh = Math.ceil(H + W * PAPER.view * 2);
+    const c = document.createElement('canvas');
+    c.width = Math.round(W * s);
+    c.height = Math.round(gh * s);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+    agedPaper(ctx, W, gh);
+    ground = { canvas: c, s, H: gh };
+  }
+  return ground;
+}
 
 function agedPaper(ctx, W, H) {
   const rand = mulberry32(31);
@@ -468,11 +594,21 @@ function agedPaper(ctx, W, H) {
 
 // ---------- 組み版 ----------
 
-function layout(ctx, goods, images, W, paint) {
+// focus：大きく載せるグッズの番号（-1 ならふだんの 2 列）。
+// 返すもの：height 全体の高さ、regions 押せる所、anchors 並びを替えたときにスクロールして見せる所（番号ごとの枠の上端と、focus の大きな枠の上端）
+async function layout(ctx, goods, images, W, paint, focus = -1) {
+  // 描くときは、少し描いたら 1 コマ譲る（一度に全部描くと、そのあいだ画面が止まる）
+  let slice = performance.now();
+  const breathe = async () => {
+    if (!paint || performance.now() - slice < 10) return;
+    await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    slice = performance.now();
+  };
   const M = 84; // 左右の余白
   const GAP = 44; // 2 列のあいだ
   const colW = (W - M * 2 - GAP) / 2;
   const regions = [];
+  const anchors = {};
   const rand = mulberry32(7);
   let y = 92;
 
@@ -485,6 +621,11 @@ function layout(ctx, goods, images, W, paint) {
     ctx.textAlign = align;
     ctx.translate(x, yy);
     ctx.rotate((rand() - 0.5) * tilt);
+    // 細い手書きの字は、画面で小さく映るとかすれて薄くなるので、同じインクで縁取って少し太らせる
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(s, 0, 0);
     ctx.fillText(s, 0, 0);
     // 手書きのインクのにじみ：ほんの少しずらして重ねる（細い字を読みやすく）
     ctx.globalAlpha = 0.35;
@@ -512,7 +653,7 @@ function layout(ctx, goods, images, W, paint) {
   };
 
   // 見出し
-  text('quimaglet official studio', W / 2, y, `500 40px ${FONT.hand}`, { align: 'center' });
+  text('quimaglet official studio', W / 2, y, `500 42px ${FONT.hand}`, { align: 'center' });
   y += 128;
   text(goods.title || 'Goods', W / 2, y, `700 150px ${FONT.hand}`, { align: 'center', tilt: 0.03 });
   y += 26;
@@ -520,18 +661,20 @@ function layout(ctx, goods, images, W, paint) {
   line(W / 2 - 200, y + 12, W / 2 + 210, { width: 2 });
   y += 62;
   const items = goods.items ?? [];
-  text(`merchandise list — ${String(items.length).padStart(2, '0')} items`, W / 2, y, `500 40px ${FONT.hand}`, { align: 'center' });
-  y += 58;
+  text(`merchandise list — ${String(items.length).padStart(2, '0')} items`, W / 2, y, `500 42px ${FONT.hand}`, { align: 'center' });
+  y += 50;
+  text('tap a photo to enlarge', W / 2, y, `500 34px ${FONT.hand}`, { align: 'center', color: 'rgba(43, 38, 32, 0.6)' });
+  y += 56;
 
   // はじめの文章
   const intro = String(goods.body ?? '').trim();
   if (intro) {
-    const font = `400 38px ${FONT.jp}`;
+    const font = `400 42px ${FONT.jp}`;
     ctx.font = font;
     for (const para of intro.split(/\n/)) {
       for (const l of wrap(ctx, para, W - M * 2)) {
         text(l, M, y, font);
-        y += 60;
+        y += 66;
       }
     }
     y += 18;
@@ -539,114 +682,158 @@ function layout(ctx, goods, images, W, paint) {
   line(M, y, W - M, { dash: true });
   y += 54;
 
-  // 1 点分の枠（写真・スタンプ・名前・価格・説明・購入ページ）。下端を返す
-  const cell = (it, img, x, top, index) => {
-    const imgH = Math.round(colW * 0.74);
-    if (paint) {
+  // 台紙に貼った写真（中心 cx, cy、大きさ w×h）。写真は枠いっぱいに切り抜いて貼る
+  const photo = (img, cx, cy, w, h, index) => {
+    if (!paint) return;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((index % 2 ? 1 : -1) * (0.012 + rand() * 0.02) * Math.min(1, colW / w));
+    ctx.fillStyle = 'rgba(70, 50, 25, 0.18)';
+    ctx.fillRect(-w / 2 + 6, -h / 2 + 8, w, h);
+    ctx.fillStyle = '#f6efdc';
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    const pad = w > colW ? 18 : 12;
+    const iw = w - pad * 2;
+    const ih = h - pad * 2;
+    if (img) {
+      const s = Math.max(iw / img.width, ih / img.height);
+      const sw = iw / s;
+      const sh = ih / s;
+      ctx.globalAlpha = 0.93;
+      ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, -iw / 2, -ih / 2, iw, ih);
+      ctx.globalAlpha = 1;
+    } else {
+      // 写真がまだないもの：鉛筆の斜線と、手書きの no image
       ctx.save();
-      ctx.translate(x + colW / 2, top + imgH / 2);
-      ctx.rotate((index % 2 ? 1 : -1) * (0.012 + rand() * 0.02));
-      // 台紙に貼った写真
-      ctx.fillStyle = 'rgba(70, 50, 25, 0.18)';
-      ctx.fillRect(-colW / 2 + 6, -imgH / 2 + 8, colW, imgH);
-      ctx.fillStyle = '#f6efdc';
-      ctx.fillRect(-colW / 2, -imgH / 2, colW, imgH);
-      const pad = 12;
-      const iw = colW - pad * 2;
-      const ih = imgH - pad * 2;
-      if (img) {
-        const s = Math.max(iw / img.width, ih / img.height);
-        const sw = iw / s;
-        const sh = ih / s;
-        ctx.globalAlpha = 0.93;
-        ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, -iw / 2, -ih / 2, iw, ih);
-        ctx.globalAlpha = 1;
-      } else {
-        // 写真がまだないもの：鉛筆の斜線と、手書きの no image
-        ctx.save();
+      ctx.beginPath();
+      ctx.rect(-iw / 2, -ih / 2, iw, ih);
+      ctx.clip();
+      ctx.strokeStyle = 'rgba(43, 38, 32, 0.22)';
+      ctx.lineWidth = 2;
+      for (let k = -ih; k < iw + ih; k += 20) {
         ctx.beginPath();
-        ctx.rect(-iw / 2, -ih / 2, iw, ih);
-        ctx.clip();
-        ctx.strokeStyle = 'rgba(43, 38, 32, 0.22)';
-        ctx.lineWidth = 2;
-        for (let k = -ih; k < iw + ih; k += 20) {
-          ctx.beginPath();
-          ctx.moveTo(-iw / 2 + k, -ih / 2);
-          ctx.lineTo(-iw / 2 + k - ih, ih / 2);
-          ctx.stroke();
-        }
-        ctx.restore();
-        ctx.strokeStyle = 'rgba(43, 38, 32, 0.45)';
-        ctx.strokeRect(-iw / 2, -ih / 2, iw, ih);
-        ctx.fillStyle = '#f6efdc';
-        ctx.fillRect(-80, -26, 160, 46);
-        ctx.fillStyle = 'rgba(43, 38, 32, 0.75)';
-        ctx.font = `500 36px ${FONT.hand}`;
-        ctx.textAlign = 'center';
-        ctx.fillText('no image', 0, 10);
-      }
-      // 上の角を留めるマスキングテープ
-      ctx.fillStyle = 'rgba(232, 220, 170, 0.75)';
-      for (const sx of [-1, 1]) {
-        ctx.save();
-        ctx.translate((sx * colW) / 2 - sx * 18, -imgH / 2 + 4);
-        ctx.rotate(sx * -0.7);
-        ctx.fillRect(-40, -13, 80, 26);
-        ctx.restore();
+        ctx.moveTo(-iw / 2 + k, -ih / 2);
+        ctx.lineTo(-iw / 2 + k - ih, ih / 2);
+        ctx.stroke();
       }
       ctx.restore();
+      ctx.strokeStyle = 'rgba(43, 38, 32, 0.45)';
+      ctx.strokeRect(-iw / 2, -ih / 2, iw, ih);
+      ctx.fillStyle = '#f6efdc';
+      ctx.fillRect(-80, -26, 160, 46);
+      ctx.fillStyle = 'rgba(43, 38, 32, 0.75)';
+      ctx.font = `500 36px ${FONT.hand}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('no image', 0, 10);
     }
-    // 状況のスタンプ（写真の右下に、少し傾けて押す）
-    const status = String(it.status ?? '').trim();
-    if (status && paint) stamp(ctx, status, x + colW - 10, top + imgH - 40, index);
+    // 上の角を留めるマスキングテープ
+    ctx.fillStyle = 'rgba(232, 220, 170, 0.75)';
+    for (const sx of [-1, 1]) {
+      ctx.save();
+      ctx.translate((sx * w) / 2 - sx * 18, -h / 2 + 4);
+      ctx.rotate(sx * -0.7);
+      ctx.fillRect(-40, -13, 80, 26);
+      ctx.restore();
+    }
+    ctx.restore();
+  };
 
-    let ty = top + imgH + 62;
-    const nameFont = `400 50px ${FONT.jp}`;
+  // 写真の下の文字（名前・価格・説明・購入ページ）。big は大きく載せたとき。文字の下端を返す
+  const details = (it, x, top, w, big) => {
+    const k = big ? 1.18 : 1;
+    let ty = top + Math.round(62 * k);
+    const nameFont = `400 ${Math.round(56 * k)}px ${FONT.jp}`;
     ctx.font = nameFont;
-    for (const l of wrap(ctx, String(it.name ?? ''), colW)) {
+    for (const l of wrap(ctx, String(it.name ?? ''), w)) {
       text(l, x, ty, nameFont);
-      ty += 58;
+      ty += Math.round(64 * k);
     }
     if (it.price) {
-      text(String(it.price), x, ty + 6, `700 56px ${FONT.hand}`);
-      ty += 62;
+      text(String(it.price), x, ty + 6, `700 ${Math.round(60 * k)}px ${FONT.hand}`);
+      ty += Math.round(66 * k);
     }
     const note = String(it.note ?? '').trim();
     if (note) {
-      const noteFont = `400 33px ${FONT.jp}`;
+      const noteFont = `400 ${Math.round(38 * k)}px ${FONT.jp}`;
       ctx.font = noteFont;
       for (const para of note.split(/\n/)) {
-        for (const l of wrap(ctx, para, colW)) {
-          text(l, x, ty + 2, noteFont, { color: 'rgba(43, 38, 32, 0.85)' });
-          ty += 46;
+        for (const l of wrap(ctx, para, w)) {
+          text(l, x, ty + 2, noteFont, { color: 'rgba(43, 38, 32, 0.88)' });
+          ty += Math.round(54 * k);
         }
       }
     }
     if (it.url) {
       ty += 12;
       const label = 'online store →';
-      const font = `700 44px ${FONT.hand}`;
+      const font = `700 ${Math.round(48 * k)}px ${FONT.hand}`;
       text(label, x, ty + 6, font, { color: '#2b3f6b' });
       if (paint) {
         ctx.font = font;
         line(x, ty + 16, x + ctx.measureText(label).width, { width: 2, color: 'rgba(43, 63, 107, 0.7)' });
       }
-      ty += 44;
-      regions.push({ x: x - 10, y: top - 10, w: colW + 20, h: ty - top + 10, url: it.url });
+      ty += Math.round(48 * k);
     }
     return ty;
   };
 
-  // 2 列に並べる
-  for (let i = 0; i < items.length; i += 2) {
+  // ふだんの 1 点分の枠。写真を押すと大きく載せる。写真の下（文字）を押すと購入ページ。下端を返す
+  const cell = (it, img, x, top, index) => {
+    const imgH = Math.round(colW * 0.74);
+    anchors[index] = top;
+    photo(img, x + colW / 2, top + imgH / 2, colW, imgH, index);
+    const status = String(it.status ?? '').trim();
+    if (status && paint) stamp(ctx, status, x + colW - 10, top + imgH - 40, index);
+    regions.push({ x: x - 10, y: top - 10, w: colW + 20, h: imgH + 20, focus: index });
+    const ty = details(it, x, top + imgH, colW, false);
+    if (it.url) regions.push({ x: x - 10, y: top + imgH + 10, w: colW + 20, h: ty - top - imgH, url: it.url });
+    return ty;
+  };
+
+  // 大きく載せた 1 点（紙の幅いっぱい）。写真は元の縦横比のまま（縦長すぎ・横長すぎは少し切る）。
+  // 上の ← all items か、大きな写真を押すと、ふだんの並びに戻す
+  const bigCell = (it, img, top, index) => {
+    const w = W - M * 2;
+    anchors.focus = top;
+    const back = '← all items';
+    const backFont = `700 56px ${FONT.hand}`;
+    text(back, M, top + 46, backFont, { color: '#2b3f6b' });
+    ctx.font = backFont;
+    regions.push({ x: M - 16, y: top - 10, w: ctx.measureText(back).width + 40, h: 76, focus: -1 });
+    top += 90;
+    const aspect = img ? img.height / img.width : 0.7;
+    const h = Math.round(w * THREE.MathUtils.clamp(aspect, 0.55, 1.15));
+    photo(img, W / 2, top + h / 2, w, h, index);
+    const status = String(it.status ?? '').trim();
+    if (status && paint) stamp(ctx, status, W - M - 14, top + h - 48, index);
+    regions.push({ x: M - 10, y: top - 10, w: w + 20, h: h + 20, focus: -1 });
+    const ty = details(it, M, top + h + 8, w, true);
+    if (it.url) regions.push({ x: M - 10, y: top + h + 18, w: w + 20, h: ty - top - h - 8, url: it.url });
+    return ty;
+  };
+
+  // 大きく載せるものがあれば先頭に置き、残りを 2 列に並べる
+  const order = items.map((_, i) => i);
+  if (focus >= 0 && items[focus]) {
+    y = bigCell(items[focus], images[focus], y, focus) + 50;
+    await breathe();
+    order.splice(focus, 1);
+    if (order.length) {
+      line(M, y, W - M, { dash: true });
+      y += 54;
+    }
+  }
+  for (let n = 0; n < order.length; n += 2) {
     const rowTop = y;
     let rowBottom = y;
-    for (let c = 0; c < 2 && i + c < items.length; c++) {
+    for (let c = 0; c < 2 && n + c < order.length; c++) {
+      const i = order[n + c];
       const x = M + c * (colW + GAP);
-      rowBottom = Math.max(rowBottom, cell(items[i + c], images[i + c], x, rowTop, i + c));
+      rowBottom = Math.max(rowBottom, cell(items[i], images[i], x, rowTop, i));
+      await breathe();
     }
     y = rowBottom + 40;
-    if (i + 2 < items.length) {
+    if (n + 2 < order.length) {
       line(M + 30, y, W - M - 30, { dash: true, width: 2, color: 'rgba(43, 38, 32, 0.4)' });
       y += 50;
     }
@@ -655,11 +842,11 @@ function layout(ctx, goods, images, W, paint) {
   // 結び
   y += 20;
   line(M, y, W - M, { width: 2.5 });
-  y += 56;
-  text('* 価格・在庫は変わることがあります。', M, y, `400 30px ${FONT.jp}`, { color: 'rgba(43, 38, 32, 0.8)' });
-  text('tap outside to close', W - M, y, `500 30px ${FONT.hand}`, { color: 'rgba(43, 38, 32, 0.6)', align: 'right' });
-  y += 90;
-  return { height: Math.ceil(y), regions };
+  y += 58;
+  text('* 価格・在庫は変わることがあります。', M, y, `400 34px ${FONT.jp}`, { color: 'rgba(43, 38, 32, 0.82)' });
+  text('tap outside to close', W - M, y, `500 34px ${FONT.hand}`, { color: 'rgba(43, 38, 32, 0.6)', align: 'right' });
+  y += 92;
+  return { height: Math.ceil(y), regions, anchors };
 }
 
 // ゴム印。枠と字を、ところどころインクが乗らないように押す
@@ -667,7 +854,7 @@ function stamp(ctx, status, right, centerY, seed) {
   const color = STAMP.find(([re]) => re.test(status))?.[1] ?? STAMP_ON;
   const rand = mulberry32(97 + seed * 13);
   ctx.save();
-  ctx.font = `400 36px ${FONT.jp}`;
+  ctx.font = `400 40px ${FONT.jp}`;
   const tw = ctx.measureText(status).width;
   const w = tw + 46;
   const h = 64;
