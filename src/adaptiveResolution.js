@@ -1,7 +1,7 @@
 // GPU が追いつかない端末でだけ、描く解像度を少しずつ下げる（速い端末は最大の解像度のまま）。
 // この部屋は画素ごとの光の計算（窓の面光源・映り込み）が重く、内蔵 GPU では解像度がそのまま重さになる。
 //
-// - 1 秒ごとにフレームの間隔の平均を見て、45fps を切っていたら 25% 下げる
+// - 1 秒ごとにフレームの間隔の平均を見て、45fps を切っていたら 25% 下げる（切り替えの瞬間の引っかかりがあった 1 秒は見ない）
 // - 解像度を変えると描き先を作り直すので、そのたびに 0.3 秒ほど止まる。変える回数を減らすため、1 回の幅を大きくし、4 秒は間を空ける
 // - 下げても速くならないとき（画面の更新が 30fps に絞られている省電力モードなど）は元に戻し、以後は下げない
 // - 余裕が 3 秒続いたら 1 段戻す。戻してすぐ遅くなったら、しばらく戻さない（行ったり来たりしない）
@@ -35,6 +35,7 @@ export function createAdaptiveResolution(renderer, { max, min }) {
   let lastRaise = -Infinity;
   let raiseBlockedUntil = 0;
   let lastChange = -Infinity;
+  let typical = 0; // ふだんのフレームの間隔（ゆっくり追いかける平均）
   let check = null; // 下げた直後：{ before: 下げる前の平均, ratio: 下げる前の解像度 }
 
   const set = (r, now) => {
@@ -56,8 +57,11 @@ export function createAdaptiveResolution(renderer, { max, min }) {
       if (!start) start = now;
       const d = now - prev;
       prev = now;
-      if (now - start < WARMUP || d > 250) {
-        // 裏に回っていた・一時的な引っかかりは数えない
+      // 画面の切り替えの瞬間の一時的な引っかかり（ふだんの間隔の 2.5 倍以上）があった 1 秒は数えない。
+      // 数えると、切り替えのたびに「遅い」と判断して解像度を下げてしまう（下げるのにもまた止まる）
+      const hitch = d > 250 || (typical && d > 100 && d > typical * 2.5);
+      if (d < 250) typical = typical ? typical + (d - typical) * 0.05 : d;
+      if (now - start < WARMUP || hitch) {
         sum = count = 0;
         return;
       }

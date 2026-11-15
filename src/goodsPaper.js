@@ -16,7 +16,7 @@ const PAPER = {
   rodRadius: 0.0065,
   rollRadius: 0.012, // 棒に巻き付けた紙の太さ（巻き取る前）
   thickness: 0.0026, // 巻き取ったときに太る紙の厚み（見えるよう実物より厚め）
-  unrollSeconds: 0.9,
+  unrollSeconds: 1.4, // 広げる時間（ゆっくり広げる）
   swapSeconds: 0.45, // 並びを替えるとき、前の絵から次の絵へ移り変わる時間
 };
 const SWAY_MAX = 0.2; // 揺れの最大（rad）

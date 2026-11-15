@@ -28,8 +28,10 @@ const bootLabel = document.getElementById('boot-label');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 setTextureUploader(renderer);
 useRenderer(renderer);
-const maxPixelRatio = Math.min(devicePixelRatio, 1.75);
-const minPixelRatio = Math.max(0.6, maxPixelRatio * 0.6);
+// 描く解像度の上限と下限。スマホは画面が小さく画素が細かいので、低い解像度だと荒さが目立つ。上限を上げ、下げすぎないようにする
+const touchScreen = isTouchDevice();
+const maxPixelRatio = Math.min(devicePixelRatio, touchScreen ? 2 : 1.75);
+const minPixelRatio = touchScreen ? Math.max(1, maxPixelRatio * 0.75) : Math.max(0.6, maxPixelRatio * 0.6);
 renderer.setPixelRatio(startRatio(maxPixelRatio, minPixelRatio));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -316,6 +318,15 @@ function warmUp(key, obj) {
       await compiling;
       await allReady(renderer);
       await warmPrograms();
+      // 画像（テクスチャ）も先に GPU へ送っておく（組み立てでは送られず、初めて映したフレームで送られて止まる。Goods の紙で 0.4 秒ほど）
+      const textures = new Set();
+      obj.traverse((o) => {
+        for (const m of [o.material].flat()) for (const v of Object.values(m ?? {})) if (v?.isTexture) textures.add(v);
+      });
+      for (const t of textures) {
+        renderer.initTexture(t);
+        await nextTask();
+      }
     })().catch(() => {});
     warmed.set(key, job);
   }
