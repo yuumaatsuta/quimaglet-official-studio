@@ -100,7 +100,7 @@ export function createAboutView({ onOpen, onClose } = {}) {
 
   // 画面の上に重なっているロゴや設定ボタン。絵の文字がこれらに重ならないようにする
   function obstacles(gap) {
-    return [...document.querySelectorAll('.site-header .logo img, .settings-toggle')]
+    return [...document.querySelectorAll('.site-header .logo img')]
       .map((el) => el.getBoundingClientRect())
       .filter((r) => r.width > 4 && r.height > 4)
       .map((r) => ({ x0: r.left - gap, y0: r.top - gap, x1: r.right + gap, y1: r.bottom + gap }));

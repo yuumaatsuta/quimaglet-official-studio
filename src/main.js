@@ -11,8 +11,7 @@ import { createMemberCard } from './memberCard.js';
 import { createMemberHolo } from './memberHolo.js';
 import { createPanel } from './panel.js';
 import { loadRoom } from './room.js';
-import { KINDS, LOCATION, fetchCurrentWeather, isDaylight, weatherParams } from './weather.js';
-import { createWeatherPanel } from './weatherPanel.js';
+import { KINDS, fetchCurrentWeather, isDaylight, weatherParams } from './weather.js';
 import { createWeather } from './weatherScene.js';
 import { fitWindow, updateWindowCamera } from './windowCamera.js';
 import { allReady, compileShadows, compileSliced, createLightGate, createShadowCache } from './shadowCache.js';
@@ -58,7 +57,7 @@ const contentReady = loadContent().then(() => performance.mark('q:content'));
 // 起動の後に光の組み合わせが変わって組み立て直すことがない（?weather=… の指定があればそれを使う）
 const weatherQuery = new URLSearchParams(location.search);
 const liveWeatherReady =
-  CONFIG.weatherPanel && !weatherQuery.get('weather') ? fetchCurrentWeather().catch(() => null) : Promise.resolve(null);
+  !weatherQuery.get('weather') ? fetchCurrentWeather().catch(() => null) : Promise.resolve(null);
 const roomReady = loadRoom(CONFIG.modelUrl, onBootProgress, contentReady);
 // 最初の環境マップ（周囲を撮るまでの仮の映り込み）。作るのに 0.3〜0.8 秒止まるので、ファイルのダウンロードを始めてから作る
 // （先に作ると、その間ダウンロードが始まらない）
@@ -216,9 +215,6 @@ function updatePlanetariumShutter() {
   else if (shutterOpen > 0) lampHold = false;
   weather?.setLampHold(lampHold);
 }
-function toggleShutter() {
-  shutterTarget = shutterTarget > 0.5 ? 0 : 1;
-}
 
 // ---------- 天気 ----------
 
@@ -316,61 +312,38 @@ if (weather) {
     if (!instant) weather.previewTarget(() => captureEnvironment(true));
   };
 
-  const weatherPanel = CONFIG.weatherPanel
-    ? createWeatherPanel({
-        onShutter: room.shutter ? toggleShutter : null,
-        onLive: applyLiveWeather,
-        onManual: (kind, isDay) => {
-          setWeather(weatherParams(kind, isDay));
-          weatherPanel.setStatus(`試作：${KINDS[kind]}${isDay ? '' : '（夜）'}`);
-        },
-      })
-    : null;
-
   let firstLive = true;
   let lastKind = earlyWeather?.kind ?? 'clear'; // 最後に取れた天気の種類
   let shownNight = !!initialWeather.night;
   let retryTimer = 0;
   async function applyLiveWeather() {
     clearTimeout(retryTimer);
-    weatherPanel?.setStatus(`${LOCATION.name}の天気を取得中…`);
     try {
       const early = firstLive ? await liveWeatherReady : null;
       firstLive = false;
       const now = early ?? (await fetchCurrentWeather());
-      if (weatherPanel && !weatherPanel.live) return;
       lastKind = now.kind;
       shownNight = !!now.params.night;
       setWeather(now.params);
-      const time = now.time.slice(11, 16);
-      weatherPanel?.setStatus(
-        `${LOCATION.name} ${time}　${KINDS[now.kind]}${now.isDay ? '' : '（夜）'}　${Math.round(now.temperature)}°C`,
-      );
     } catch (err) {
       console.warn('[weather]', err);
-      if (weatherPanel && !weatherPanel.live) return;
       // 天気が取れないあいだも、昼・夜は時計に合わせる（天気は最後に取れたもののまま）
       const night = !isDaylight();
       if (night !== shownNight) {
         shownNight = night;
         setWeather(weatherParams(lastKind, !night));
       }
-      weatherPanel?.setStatus(`${LOCATION.name}の天気を取得できませんでした（1 分後にもう一度）`);
-      retryTimer = setTimeout(() => (!weatherPanel || weatherPanel.live) && applyLiveWeather(), 60 * 1000);
+      retryTimer = setTimeout(applyLiveWeather, 60 * 1000);
     }
   }
 
-  // ?weather=rain&night のように URL で天気を指定できる（試作の共有・確認用）
-  const query = new URLSearchParams(location.search);
-  const fixed = query.get('weather');
-  if (fixed && KINDS[fixed] && weatherPanel) {
-    weatherPanel.select(fixed, !query.has('night'));
+  // ?weather=rain&night のように URL で天気を指定すると、その天気のまま変えない（見た目の確認用）
+  if (fixedWeather && KINDS[fixedWeather]) {
+    setWeather(initialWeather);
   } else {
     applyLiveWeather();
+    setInterval(applyLiveWeather, CONFIG.weatherRefreshMinutes * 60 * 1000);
   }
-  setInterval(() => {
-    if (!weatherPanel || weatherPanel.live) applyLiveWeather();
-  }, CONFIG.weatherRefreshMinutes * 60 * 1000);
 }
 
 // ---------- 視点 ----------

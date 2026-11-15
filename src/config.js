@@ -28,6 +28,4 @@ export const CONFIG = {
 
   // 窓の外の天気を淵野辺の現在の天気に合わせる（Open-Meteo）。何分ごとに取り直すか
   weatherRefreshMinutes: 10,
-  // 試作用の天気切り替えボタンを出す
-  weatherPanel: true,
 };

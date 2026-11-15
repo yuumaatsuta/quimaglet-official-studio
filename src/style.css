@@ -128,9 +128,6 @@ body.is-night .logo-night {
 
 /* メニューは奥の壁の落書き（src/wallMenu.js）。PC もスマホも、この文字のメニューは見た目だけ隠し、
    キーボードで移ったときと読み上げには残す */
-.settings-toggle {
-  margin-left: auto; /* メニューが隠れている間は、歯車だけを右端へ */
-}
 .nav:not(:focus-within) {
   position: absolute;
   width: 1px;
@@ -246,95 +243,6 @@ body.is-night .logo-night {
   border-color: #fff;
   background: #fff;
   color: #111;
-}
-
-/* ---------- weather (試作) ---------- */
-
-.weather-panel {
-  position: fixed;
-  z-index: 2;
-  top: calc(max(14px, calc(15 * var(--u)), env(safe-area-inset-top)) + 40px);
-  right: max(var(--pad), env(safe-area-inset-right)); /* 右上の歯車の下に開く */
-  display: grid;
-  gap: 6px;
-  max-width: calc(100vw - 2 * var(--pad));
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  font-size: 12px;
-}
-
-.weather-panel[hidden] {
-  display: none;
-}
-
-/* 天気パネルを開く小さな歯車（ヘッダーの右端） */
-.settings-toggle {
-  pointer-events: auto;
-  align-self: center;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.3);
-  color: var(--fg);
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-}
-.settings-toggle[hidden] {
-  display: none;
-}
-.settings-toggle svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.4s ease;
-}
-.settings-toggle:hover,
-.settings-toggle:focus-visible,
-.settings-toggle[aria-expanded="true"] {
-  border-color: rgba(255, 255, 255, 0.7);
-}
-.settings-toggle[aria-expanded="true"] svg {
-  transform: rotate(60deg);
-}
-
-.weather-status {
-  margin: 0 0 2px;
-  opacity: 0.85;
-}
-
-.weather-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.weather-row button {
-  padding: 4px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 999px;
-  background: none;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.weather-row button:hover {
-  border-color: rgba(255, 255, 255, 0.7);
-}
-
-.weather-row button.is-active {
-  background: #fff;
-  color: #000;
-  border-color: #fff;
 }
 
 /* ---------- panel ---------- */
@@ -526,14 +434,12 @@ body:not(.is-holo) .holo-beam {
 
 /* ブラウン管にズームしている間は、文字を退かして映像を見せる */
 .hero,
-.backdrop,
-.weather-panel {
+.backdrop {
   transition: opacity 0.6s ease;
 }
 .is-zoomed .hero,
 .is-zoomed .backdrop,
-.is-holo .hero,
-.is-holo .weather-panel {
+.is-holo .hero {
   opacity: 0;
   pointer-events: none;
 }
@@ -788,9 +694,8 @@ body.is-about-scrolled .site-header .logo {
     letter-spacing: 0.02em;
   }
 }
-/* 読んでいる間は、右上の設定ボタンや IMMERSE を退かす */
-body.is-news .hero,
-body.is-news .settings-toggle {
+/* 読んでいる間は、IMMERSE を退かす */
+body.is-news .hero {
   opacity: 0;
   pointer-events: none;
 }
