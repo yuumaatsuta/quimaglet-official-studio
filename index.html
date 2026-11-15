@@ -3,15 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>QUIMAGLET OFFICIAL STUDIO</title>
-    <meta name="description" content="QUIMAGLET OFFICIAL STUDIO" />
+    <!-- タイトル・説明文・キーワード・制作者・構造化データは管理画面の「サイト設定」から（src/seo.js。公開するときに vite.config.js がここへ書き込む） -->
+    <!-- seo:start -->
+    <title>quimaglet ~きまぐれ~ 公式サイト | QUIMAGLET OFFICIAL STUDIO</title>
+    <meta name="description" content="ここは、社会に疲れた人々に寄り添う音楽的表現を探求するアーティスト集団 quimaglet の制作スタジオです。音楽・映像・アートワーク・ライブ演出をデザインし、独自の世界観を作り上げます。スタジオでは球体型制作支援ロボット Lovvy が、お知らせ・作品・グッズ・メンバーなど様々な情報を提示してくれます。" />
+    <meta name="keywords" content="quimaglet, きまぐれ, キマグレ, QUIMAGLET, バンド, アーティスト集団, 相模原, 淵野辺, 神奈川, インディーズ, オルタナティブ, ジャズ, ボサノヴァ, 渡辺美月, 熱田悠馬, 内田泰河, 浅葉瑛太, 公式サイト" />
+    <meta name="author" content="Yuuma Atsuta 熱田悠馬" />
+    <meta name="creator" content="Yuuma Atsuta 熱田悠馬" />
+    <meta property="og:title" content="quimaglet ~きまぐれ~ 公式サイト | QUIMAGLET OFFICIAL STUDIO" />
+    <meta property="og:description" content="ここは、社会に疲れた人々に寄り添う音楽的表現を探求するアーティスト集団 quimaglet の制作スタジオです。音楽・映像・アートワーク・ライブ演出をデザインし、独自の世界観を作り上げます。スタジオでは球体型制作支援ロボット Lovvy が、お知らせ・作品・グッズ・メンバーなど様々な情報を提示してくれます。" />
+    <meta name="twitter:title" content="quimaglet ~きまぐれ~ 公式サイト | QUIMAGLET OFFICIAL STUDIO" />
+    <meta name="twitter:description" content="ここは、社会に疲れた人々に寄り添う音楽的表現を探求するアーティスト集団 quimaglet の制作スタジオです。音楽・映像・アートワーク・ライブ演出をデザインし、独自の世界観を作り上げます。スタジオでは球体型制作支援ロボット Lovvy が、お知らせ・作品・グッズ・メンバーなど様々な情報を提示してくれます。" />
+    <script type="application/ld+json" id="seo-ld">[{"@context":"https://schema.org","@type":"WebSite","name":"quimaglet ~きまぐれ~ 公式サイト | QUIMAGLET OFFICIAL STUDIO","url":"https://quimaglet.studio/","inLanguage":"ja","description":"ここは、社会に疲れた人々に寄り添う音楽的表現を探求するアーティスト集団 quimaglet の制作スタジオです。音楽・映像・アートワーク・ライブ演出をデザインし、独自の世界観を作り上げます。スタジオでは球体型制作支援ロボット Lovvy が、お知らせ・作品・グッズ・メンバーなど様々な情報を提示してくれます。","author":{"@type":"Person","name":"Yuuma Atsuta 熱田悠馬"},"creator":{"@type":"Person","name":"Yuuma Atsuta 熱田悠馬"}},{"@context":"https://schema.org","@type":"MusicGroup","name":"quimaglet","alternateName":["きまぐれ","QUIMAGLET"],"url":"https://quimaglet.studio/","description":"ここは、社会に疲れた人々に寄り添う音楽的表現を探求するアーティスト集団 quimaglet の制作スタジオです。音楽・映像・アートワーク・ライブ演出をデザインし、独自の世界観を作り上げます。スタジオでは球体型制作支援ロボット Lovvy が、お知らせ・作品・グッズ・メンバーなど様々な情報を提示してくれます。","foundingLocation":{"@type":"Place","name":"神奈川県相模原市"},"image":"https://quimaglet-api.quimaglet.workers.dev/site/og-image","member":[{"@type":"Person","name":"渡辺 美月","alternateName":"Mizuki Watanabe","roleName":"Vocal & Guitar"},{"@type":"Person","name":"熱田 悠馬","alternateName":"Yuma Atsuta","roleName":"Guitar & Chorus"},{"@type":"Person","name":"内田 泰河","alternateName":"Taiga Uchida","roleName":"Bass"},{"@type":"Person","name":"浅葉 瑛太","alternateName":"Eita Asaba","roleName":"Keys & Sub Vocal"}]}]</script>
+    <!-- seo:end -->
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://quimaglet.studio/" />
+    <link rel="author" href="/humans.txt" />
     <!-- ファビコンとサムネイル（SNS で共有したときの画像）は管理画面で替えられる（backend/ の /site/favicon・/site/og-image） -->
     <link rel="icon" type="image/png" href="https://quimaglet-api.quimaglet.workers.dev/site/favicon" />
     <link rel="apple-touch-icon" href="https://quimaglet-api.quimaglet.workers.dev/site/favicon" />
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ja_JP" />
     <meta property="og:site_name" content="QUIMAGLET OFFICIAL STUDIO" />
-    <meta property="og:title" content="QUIMAGLET OFFICIAL STUDIO" />
-    <meta property="og:description" content="QUIMAGLET OFFICIAL STUDIO" />
     <meta property="og:url" content="https://quimaglet.studio/" />
     <meta property="og:image" content="https://quimaglet-api.quimaglet.workers.dev/site/og-image" />
     <meta property="og:image:width" content="1200" />
@@ -26,7 +39,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700;900&display=swap" />
     <!-- Goods の紙のメニューの手書きの字（src/goodsPaper.js）。英数字は Caveat、日本語は Yomogi -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Yomogi&display=swap" />
-    <script type="module" crossorigin src="/assets/index-BZ9ZMgSp.js"></script>
+    <script type="module" crossorigin src="/assets/index-B1JRLMLM.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-COuLr1eC.css">
   </head>
   <body>
@@ -62,7 +75,9 @@
 
     <!-- 文字のロゴは、左手前の床の立体の文字（src/floorLogo.js）。見出しは読み上げ用に残す -->
     <section class="hero">
-      <h1 class="sr-only">QUIMAGLET OFFICIAL STUDIO</h1>
+      <h1 class="sr-only">quimaglet ~きまぐれ~ 公式サイト — QUIMAGLET OFFICIAL STUDIO</h1>
+      <!-- 検索エンジンと読み上げ向けのサイトの説明（管理画面の「サイト設定」の説明文。src/seo.js が書き換える） -->
+      <p class="sr-only" id="site-desc">ここは、社会に疲れた人々に寄り添う音楽的表現を探求するアーティスト集団 quimaglet の制作スタジオです。音楽・映像・アートワーク・ライブ演出をデザインし、独自の世界観を作り上げます。スタジオでは球体型制作支援ロボット Lovvy が、お知らせ・作品・グッズ・メンバーなど様々な情報を提示してくれます。</p>
       <p class="sr-only" id="immerse-desc">IMMERSE を押すと、マウスの動きや端末の傾きで部屋を見回せます。</p>
       <button type="button" id="immerse" class="immerse" aria-pressed="false" aria-describedby="immerse-desc">
         <svg viewBox="0 0 24 24" aria-hidden="true">

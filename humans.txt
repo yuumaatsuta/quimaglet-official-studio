@@ -1,0 +1,7 @@
+/* TEAM */
+Site: https://quimaglet.studio/
+Design & Development: Yuuma Atsuta 熱田悠馬
+
+/* SITE */
+Language: Japanese
+Standards: HTML5, CSS3, WebGL (three.js)
